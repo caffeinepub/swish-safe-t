@@ -1,0 +1,79 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark industrial theme */
+    --background: 0.13 0.008 145;
+    --foreground: 0.93 0.01 145;
+
+    --card: 0.17 0.01 145;
+    --card-foreground: 0.93 0.01 145;
+    --card-hover: 0.21 0.012 145;
+
+    --popover: 0.16 0.01 145;
+    --popover-foreground: 0.93 0.01 145;
+
+    /* Grey-green primary #4a7c59 */
+    --primary: 0.55 0.1 155;
+    --primary-foreground: 0.98 0.005 145;
+
+    --secondary: 0.21 0.012 145;
+    --secondary-foreground: 0.93 0.01 145;
+
+    --muted: 0.18 0.01 145;
+    --muted-foreground: 0.6 0.012 145;
+
+    --accent: 0.24 0.015 145;
+    --accent-foreground: 0.93 0.01 145;
+
+    --destructive: 0.54 0.22 25;
+    --destructive-foreground: 0.98 0 0;
+
+    --success: 0.55 0.15 155;
+    --success-foreground: 0.98 0.005 145;
+
+    --warning: 0.72 0.16 65;
+    --warning-foreground: 0.12 0.01 145;
+
+    --info: 0.58 0.14 235;
+    --info-foreground: 0.98 0.005 235;
+
+    --border: 0.25 0.012 145;
+    --input: 0.19 0.01 145;
+    --ring: 0.55 0.1 155;
+
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: oklch(var(--muted));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(var(--border));
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(var(--muted-foreground));
+  }
+}
