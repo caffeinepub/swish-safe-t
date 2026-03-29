@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -23,8 +24,11 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Copy,
   ImageIcon,
   Loader2,
+  Minus,
+  PlusCircle,
   Save,
   X,
 } from "lucide-react";
@@ -52,6 +56,13 @@ interface Props {
   siteId: string;
   auditId?: string;
   onNavigate: (page: NavPage) => void;
+}
+
+interface SectionObservation {
+  id: string;
+  remarks: string;
+  recommendations: string;
+  images: string[];
 }
 
 type ValidationErrors = Record<
@@ -86,27 +97,38 @@ function emptyAnswer(): QuestionAnswer {
   return { answer: "", remarks: "", images: [] };
 }
 
-function parseAnswers(json: string): AuditAnswers {
+function genId(): string {
+  return `obs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function parseAnswers(json: string): {
+  answers: AuditAnswers;
+  observations: Record<string, SectionObservation[]>;
+} {
+  const answers: AuditAnswers = {};
+  const observations: Record<string, SectionObservation[]> = {};
   try {
     const parsed = JSON.parse(json);
     if (typeof parsed === "object" && parsed !== null) {
-      // Migrate old flat format: { [qId]: string | string[] }
-      const result: AuditAnswers = {};
       for (const [k, v] of Object.entries(parsed)) {
-        if (typeof v === "object" && v !== null && "answer" in v) {
-          result[k] = v as QuestionAnswer;
+        if (k.startsWith("__obs_")) {
+          const secId = k.slice(6);
+          observations[secId] = Array.isArray(v)
+            ? (v as SectionObservation[])
+            : [];
+        } else if (typeof v === "object" && v !== null && "answer" in v) {
+          answers[k] = v as QuestionAnswer;
         } else if (typeof v === "string") {
-          result[k] = { answer: v, remarks: "", images: [] };
+          answers[k] = { answer: v, remarks: "", images: [] };
         } else if (Array.isArray(v)) {
-          result[k] = { answer: "", remarks: "", images: v as string[] };
+          answers[k] = { answer: "", remarks: "", images: v as string[] };
         }
       }
-      return result;
     }
   } catch {
     /* noop */
   }
-  return {};
+  return { answers, observations };
 }
 
 export default function QuestionnairePage({
@@ -133,6 +155,18 @@ export default function QuestionnairePage({
       );
   }
 
+  const initParsed = (() => {
+    const src = auditId
+      ? auditStore.getById(auditId)
+      : site
+        ? auditStore
+            .getBySite(site.id)
+            .sort((a, b) => b.lastSavedAt - a.lastSavedAt)[0]
+        : null;
+    if (!src) return { answers: {}, observations: {} };
+    return parseAnswers(src.answersJson);
+  })();
+
   const [audit, setAudit] = useState<Audit | null>(() => {
     if (auditId) return auditStore.getById(auditId);
     const existing = site
@@ -143,22 +177,15 @@ export default function QuestionnairePage({
     return existing ?? null;
   });
 
-  const [answers, setAnswers] = useState<AuditAnswers>(() => {
-    const src = auditId
-      ? auditStore.getById(auditId)
-      : site
-        ? auditStore
-            .getBySite(site.id)
-            .sort((a, b) => b.lastSavedAt - a.lastSavedAt)[0]
-        : null;
-    if (!src) return {};
-    return parseAnswers(src.answersJson);
-  });
-
+  const [answers, setAnswers] = useState<AuditAnswers>(initParsed.answers);
+  const [sectionObservations, setSectionObservations] = useState<
+    Record<string, SectionObservation[]>
+  >(initParsed.observations);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(sections.map((s) => s.id)),
   );
   const [errors, setErrors] = useState<ValidationErrors>({});
+  const [obsErrors, setObsErrors] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showSendBackDialog, setShowSendBackDialog] = useState(false);
@@ -166,7 +193,6 @@ export default function QuestionnairePage({
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // Ensure audit exists
   useEffect(() => {
     if (!audit && site && template) {
       const a = auditStore.add({
@@ -185,11 +211,23 @@ export default function QuestionnairePage({
   }, [audit, site, template, role, session]);
 
   const saveAnswers = useCallback(
-    (currentAnswers: AuditAnswers) => {
+    (
+      currentAnswers: AuditAnswers,
+      currentObs: Record<string, SectionObservation[]>,
+    ) => {
       if (!audit) return;
       setSaving(true);
+      const combined = {
+        ...currentAnswers,
+        ...Object.fromEntries(
+          Object.entries(currentObs).map(([secId, rows]) => [
+            `__obs_${secId}`,
+            rows,
+          ]),
+        ),
+      };
       auditStore.update(audit.id, {
-        answersJson: JSON.stringify(currentAnswers),
+        answersJson: JSON.stringify(combined),
         lastSavedAt: Date.now(),
       });
       setTimeout(() => setSaving(false), 500);
@@ -215,16 +253,17 @@ export default function QuestionnairePage({
       const n = { ...prev };
       if (n[qId]) {
         const updated = { ...n[qId], [field]: false };
-        if (!updated.answer && !updated.remarks && !updated.images) {
+        if (!updated.answer && !updated.remarks && !updated.images)
           delete n[qId];
-        } else {
-          n[qId] = updated;
-        }
+        else n[qId] = updated;
       }
       return n;
     });
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => saveAnswers(next), 5000);
+    autoSaveTimerRef.current = setTimeout(
+      () => saveAnswers(next, sectionObservations),
+      5000,
+    );
   };
 
   useEffect(() => {
@@ -235,7 +274,7 @@ export default function QuestionnairePage({
 
   const handleManualSave = () => {
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    saveAnswers(answers);
+    saveAnswers(answers, sectionObservations);
     toast.success("Report saved");
   };
 
@@ -261,15 +300,123 @@ export default function QuestionnairePage({
       };
       setAnswers(next);
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = setTimeout(() => saveAnswers(next), 5000);
+      autoSaveTimerRef.current = setTimeout(
+        () => saveAnswers(next, sectionObservations),
+        5000,
+      );
     });
   };
 
   const removeImage = (qId: string, idx: number) => {
     const current = getOrEmpty(qId);
-    const newImages = current.images.filter((_, i) => i !== idx);
-    updateAnswer(qId, "images", newImages);
+    updateAnswer(
+      qId,
+      "images",
+      current.images.filter((_, i) => i !== idx),
+    );
   };
+
+  // ── Observation helpers ──────────────────────────────────────────────────
+
+  const getObservations = (secId: string): SectionObservation[] =>
+    sectionObservations[secId] ?? [];
+
+  const persistObs = (secId: string, next: SectionObservation[]) => {
+    setSectionObservations((prev) => {
+      const updated = { ...prev, [secId]: next };
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(
+        () => saveAnswers(answers, updated),
+        5000,
+      );
+      return updated;
+    });
+  };
+
+  const addObservation = (secId: string) => {
+    persistObs(secId, [
+      ...getObservations(secId),
+      { id: genId(), remarks: "", recommendations: "", images: [] },
+    ]);
+  };
+
+  const removeObservation = (secId: string, obsId: string) => {
+    persistObs(
+      secId,
+      getObservations(secId).filter((o) => o.id !== obsId),
+    );
+  };
+
+  const duplicateObservation = (secId: string, obsId: string) => {
+    const current = getObservations(secId);
+    const idx = current.findIndex((o) => o.id === obsId);
+    if (idx < 0) return;
+    const clone: SectionObservation = { ...current[idx], id: genId() };
+    persistObs(secId, [
+      ...current.slice(0, idx + 1),
+      clone,
+      ...current.slice(idx + 1),
+    ]);
+  };
+
+  const updateObservationField = (
+    secId: string,
+    obsId: string,
+    field: "remarks" | "recommendations",
+    value: string,
+  ) => {
+    persistObs(
+      secId,
+      getObservations(secId).map((o) =>
+        o.id === obsId ? { ...o, [field]: value } : o,
+      ),
+    );
+  };
+
+  const handleObsImageUpload = (
+    secId: string,
+    obsId: string,
+    files: FileList | null,
+  ) => {
+    if (!files || !files.length) return;
+    const readers: Promise<string>[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      readers.push(
+        new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.readAsDataURL(file);
+        }),
+      );
+    }
+    Promise.all(readers).then((bases) => {
+      persistObs(
+        secId,
+        getObservations(secId).map((o) =>
+          o.id === obsId ? { ...o, images: [...o.images, ...bases] } : o,
+        ),
+      );
+      setObsErrors((prev) => {
+        const n = new Set(prev);
+        n.delete(obsId);
+        return n;
+      });
+    });
+  };
+
+  const removeObsImage = (secId: string, obsId: string, imgIdx: number) => {
+    persistObs(
+      secId,
+      getObservations(secId).map((o) =>
+        o.id === obsId
+          ? { ...o, images: o.images.filter((_, i) => i !== imgIdx) }
+          : o,
+      ),
+    );
+  };
+
+  // ── Validation ───────────────────────────────────────────────────────────
 
   const validateAndSubmit = () => {
     if (!audit || !template) return;
@@ -280,59 +427,62 @@ export default function QuestionnairePage({
         const ans = getOrEmpty(q.id);
         const qErr: { answer?: boolean; remarks?: boolean; images?: boolean } =
           {};
-
-        // Check answer
-        if (!ans.answer || !ans.answer.trim()) {
-          qErr.answer = true;
-        }
-        // Check remarks — always required
-        if (!ans.remarks || !ans.remarks.trim()) {
-          qErr.remarks = true;
-        }
-        // Check images — only if imageUploadMandatory
+        if (!ans.answer || !ans.answer.trim()) qErr.answer = true;
+        if (!ans.remarks || !ans.remarks.trim()) qErr.remarks = true;
         if (
           q.enableImageUpload &&
           q.imageUploadMandatory &&
           (!ans.images || ans.images.length === 0)
-        ) {
+        )
           qErr.images = true;
-        }
-
-        if (qErr.answer || qErr.remarks || qErr.images) {
-          newErrors[q.id] = qErr;
-        }
+        if (qErr.answer || qErr.remarks || qErr.images) newErrors[q.id] = qErr;
       }
     }
 
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      // Expand sections with errors
-      for (const sec of sections) {
-        const qs = questionsBySec[sec.id] ?? [];
-        if (qs.some((q) => newErrors[q.id])) {
+    // Check observation images — all observations require at least one image
+    const newObsErrors = new Set<string>();
+    for (const sec of sections) {
+      const obs = sectionObservations[sec.id] ?? [];
+      for (const ob of obs) {
+        if (ob.images.length === 0) {
+          newObsErrors.add(ob.id);
           setExpandedSections((prev) => new Set([...prev, sec.id]));
         }
       }
-      // Scroll to first error
+    }
+    setObsErrors(newObsErrors);
+
+    if (Object.keys(newErrors).length > 0 || newObsErrors.size > 0) {
+      setErrors(newErrors);
+      for (const sec of sections) {
+        if ((questionsBySec[sec.id] ?? []).some((q) => newErrors[q.id])) {
+          setExpandedSections((prev) => new Set([...prev, sec.id]));
+        }
+      }
       const firstErrorId = Object.keys(newErrors)[0];
       setTimeout(() => {
         const el = questionRefs.current[firstErrorId];
         if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 100);
-      const errorCount = Object.keys(newErrors).length;
-      toast.error(
-        `${errorCount} question${errorCount > 1 ? "s" : ""} need attention — check highlighted fields`,
-      );
+      const qCount = Object.keys(newErrors).length;
+      const obsCount = newObsErrors.size;
+      let msg = "";
+      if (qCount > 0 && obsCount > 0)
+        msg = `${qCount} question${qCount > 1 ? "s" : ""} and ${obsCount} critical observation${obsCount > 1 ? "s" : ""} need attention`;
+      else if (qCount > 0)
+        msg = `${qCount} question${qCount > 1 ? "s" : ""} need attention — check highlighted fields`;
+      else
+        msg = `${obsCount} critical observation${obsCount > 1 ? "s" : ""} require at least one image`;
+      toast.error(msg);
       return;
     }
 
     setSubmitting(true);
-    saveAnswers(answers);
+    saveAnswers(answers, sectionObservations);
     let newStatus: Audit["status"] = "Submitted";
     if (role === "reviewer") newStatus = "Reviewed";
     auditStore.update(audit.id, { status: newStatus, lastSavedAt: Date.now() });
-    const updated = auditStore.getById(audit.id);
-    setAudit(updated);
+    setAudit(auditStore.getById(audit.id));
     setSubmitting(false);
     toast.success(
       role === "reviewer"
@@ -512,12 +662,14 @@ export default function QuestionnairePage({
             const qs = questionsBySec[sec.id] ?? [];
             const isExpanded = expandedSections.has(sec.id);
             const hasError = qs.some((q) => errors[q.id]);
+            const observations = getObservations(sec.id);
+            const hasObsError = observations.some((o) => obsErrors.has(o.id));
             return (
               <div key={sec.id} className="mb-3">
                 <button
                   type="button"
                   className={`w-full flex items-center justify-between px-5 py-3 rounded-t-lg font-semibold text-white text-base ${
-                    hasError ? "bg-red-700" : "bg-[#6b7c3a]"
+                    hasError || hasObsError ? "bg-red-700" : "bg-[#6b7c3a]"
                   }`}
                   onClick={() =>
                     setExpandedSections((prev) => {
@@ -537,8 +689,10 @@ export default function QuestionnairePage({
                     <ChevronRight className="h-5 w-5" />
                   )}
                 </button>
+
                 {isExpanded && (
                   <div className="bg-[#1a2420] border border-[#1e2e26] border-t-0 rounded-b-lg px-4 py-4 space-y-4">
+                    {/* Questions */}
                     {qs.map((q, qi) => {
                       const qErr = errors[q.id] ?? {};
                       const hasQErr =
@@ -551,13 +705,8 @@ export default function QuestionnairePage({
                             questionRefs.current[q.id] = el;
                           }}
                           data-ocid={`questionnaire.item.${qi + 1}`}
-                          className={`rounded-lg border p-4 space-y-4 transition-colors ${
-                            hasQErr
-                              ? "border-red-600 bg-red-900/10"
-                              : "border-[#2a3d33] bg-[#151f1a]"
-                          }`}
+                          className={`rounded-lg border p-4 space-y-4 transition-colors ${hasQErr ? "border-red-600 bg-red-900/10" : "border-[#2a3d33] bg-[#151f1a]"}`}
                         >
-                          {/* Question number + label */}
                           <p className="text-sm font-semibold text-white">
                             <span className="text-[#8aad3a] mr-2">
                               Q{qi + 1}.
@@ -565,7 +714,6 @@ export default function QuestionnairePage({
                             {q.label}
                           </p>
 
-                          {/* 1. Answer input */}
                           <div>
                             <p className="text-xs text-gray-400 mb-2">
                               Answer
@@ -613,9 +761,7 @@ export default function QuestionnairePage({
                                 disabled={!canEdit}
                               >
                                 <SelectTrigger
-                                  className={`bg-[#111c18] border-[#3a4f44] text-white max-w-sm ${
-                                    qErr.answer ? "border-red-600" : ""
-                                  }`}
+                                  className={`bg-[#111c18] border-[#3a4f44] text-white max-w-sm ${qErr.answer ? "border-red-600" : ""}`}
                                 >
                                   <SelectValue placeholder="Select an option" />
                                 </SelectTrigger>
@@ -634,7 +780,6 @@ export default function QuestionnairePage({
                             )}
                           </div>
 
-                          {/* 2. Remarks — always mandatory */}
                           <div>
                             <p className="text-xs text-gray-400 mb-2">
                               Remarks *
@@ -652,16 +797,11 @@ export default function QuestionnairePage({
                                 updateAnswer(q.id, "remarks", e.target.value)
                               }
                               placeholder="Enter your remarks here..."
-                              className={`bg-[#111c18] border-[#3a4f44] text-white placeholder:text-gray-600 resize-none min-h-[80px] ${
-                                qErr.remarks
-                                  ? "border-red-600 focus-visible:ring-red-600"
-                                  : ""
-                              }`}
+                              className={`bg-[#111c18] border-[#3a4f44] text-white placeholder:text-gray-600 resize-none min-h-[80px] ${qErr.remarks ? "border-red-600 focus-visible:ring-red-600" : ""}`}
                               disabled={!canEdit}
                             />
                           </div>
 
-                          {/* 3. Image Upload — only if template enables it */}
                           {q.enableImageUpload && (
                             <div>
                               <p className="text-xs text-gray-400 mb-2">
@@ -706,11 +846,7 @@ export default function QuestionnairePage({
                               {canEdit && (
                                 <label className="cursor-pointer">
                                   <div
-                                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-gray-300 transition-colors border ${
-                                      qErr.images
-                                        ? "bg-red-900/20 border-red-600 hover:bg-red-900/30"
-                                        : "bg-[#2a3d33] hover:bg-[#3a4f44] border-[#3a4f44]"
-                                    }`}
+                                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-gray-300 transition-colors border ${qErr.images ? "bg-red-900/20 border-red-600 hover:bg-red-900/30" : "bg-[#2a3d33] hover:bg-[#3a4f44] border-[#3a4f44]"}`}
                                   >
                                     <ImageIcon className="h-4 w-4" /> Upload
                                     Images
@@ -731,6 +867,231 @@ export default function QuestionnairePage({
                         </div>
                       );
                     })}
+
+                    {/* ── Critical Observations & Recommendations Panel ── */}
+                    <div className="rounded-lg border border-gray-300 bg-white mt-4 overflow-hidden">
+                      <div className="bg-gray-100 border-b border-gray-200 px-4 py-2.5 flex items-center gap-2">
+                        <ClipboardList className="h-4 w-4 text-gray-500 shrink-0" />
+                        <span className="text-sm font-semibold text-gray-700">
+                          Critical Observations &amp; Recommendations
+                        </span>
+                        <span className="ml-auto text-xs text-gray-400 shrink-0">
+                          {observations.length} observation
+                          {observations.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      <div className="px-4 py-3">
+                        {observations.length === 0 && (
+                          <p
+                            data-ocid={`obs.${sec.id}.empty_state`}
+                            className="text-sm text-gray-400 text-center py-4"
+                          >
+                            No observations added yet.
+                            {canEdit && ' Click "Add Observation" to begin.'}
+                          </p>
+                        )}
+
+                        {observations.length > 0 && (
+                          <p className="text-xs font-medium text-gray-500 mb-3 uppercase tracking-wide">
+                            Critical Observation
+                          </p>
+                        )}
+
+                        <div className="space-y-4">
+                          {observations.map((obs, oi) => (
+                            <div
+                              key={obs.id}
+                              data-ocid={`obs.item.${oi + 1}`}
+                              className={`border rounded-lg overflow-hidden ${
+                                obsErrors.has(obs.id)
+                                  ? "border-red-500 bg-red-50"
+                                  : "border-gray-200 bg-gray-50"
+                              }`}
+                            >
+                              {/* Row header */}
+                              <div className="bg-gray-200 px-3 py-1.5 flex items-center justify-between">
+                                <span className="text-xs font-bold text-gray-600">
+                                  #{oi + 1}
+                                </span>
+                                {canEdit && (
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      title="Duplicate observation"
+                                      data-ocid={`obs.item.${oi + 1}.button`}
+                                      onClick={() =>
+                                        duplicateObservation(sec.id, obs.id)
+                                      }
+                                      className="h-6 w-6 rounded flex items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                    >
+                                      <Copy className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="Remove observation"
+                                      data-ocid={`obs.item.${oi + 1}.delete_button`}
+                                      onClick={() =>
+                                        removeObservation(sec.id, obs.id)
+                                      }
+                                      className="h-6 w-6 rounded-full border border-red-300 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 hover:border-red-500 transition-colors"
+                                    >
+                                      <Minus className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Remarks + Recommendations */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 px-3 pt-3">
+                                <div>
+                                  <Label className="text-xs font-medium text-gray-600 mb-1.5 block">
+                                    Remarks
+                                  </Label>
+                                  <Input
+                                    data-ocid={`obs.item.${oi + 1}.input`}
+                                    value={obs.remarks}
+                                    onChange={(e) =>
+                                      canEdit &&
+                                      updateObservationField(
+                                        sec.id,
+                                        obs.id,
+                                        "remarks",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="Describe the observation..."
+                                    className="bg-white border-gray-300 text-gray-800 placeholder:text-gray-400 text-sm"
+                                    disabled={!canEdit}
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs font-medium text-gray-600 mb-1.5 block">
+                                    Recommendations
+                                  </Label>
+                                  <Input
+                                    value={obs.recommendations}
+                                    onChange={(e) =>
+                                      canEdit &&
+                                      updateObservationField(
+                                        sec.id,
+                                        obs.id,
+                                        "recommendations",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="Recommended action..."
+                                    className="bg-white border-gray-300 text-gray-800 placeholder:text-gray-400 text-sm"
+                                    disabled={!canEdit}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Images */}
+                              <div className="px-3 pb-3 pt-2">
+                                <Label
+                                  className={`text-xs font-medium mb-1.5 block ${
+                                    obsErrors.has(obs.id)
+                                      ? "text-red-600"
+                                      : "text-gray-600"
+                                  }`}
+                                >
+                                  Images <span className="text-red-500">*</span>
+                                  {obsErrors.has(obs.id) && (
+                                    <span className="text-red-500 ml-1">
+                                      — at least 1 image required
+                                    </span>
+                                  )}
+                                </Label>
+                                <div className="border border-dashed border-gray-300 rounded-lg p-3 bg-white">
+                                  {obs.images.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                      {obs.images.map((src, ii) => (
+                                        <div
+                                          key={`obsimg_${obs.id}_${ii}`}
+                                          className="relative group"
+                                        >
+                                          <img
+                                            src={src}
+                                            alt={`Obs img ${ii + 1}`}
+                                            className="h-16 w-16 object-cover rounded border border-gray-200"
+                                          />
+                                          {canEdit && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                removeObsImage(
+                                                  sec.id,
+                                                  obs.id,
+                                                  ii,
+                                                )
+                                              }
+                                              className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full h-4 w-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                              <X className="h-2.5 w-2.5" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {canEdit ? (
+                                    <label className="cursor-pointer">
+                                      <div
+                                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs transition-colors ${
+                                          obsErrors.has(obs.id)
+                                            ? "border-red-400 text-red-600 bg-red-50 hover:bg-red-100"
+                                            : "border-gray-300 text-gray-600 bg-gray-50 hover:bg-gray-100"
+                                        }`}
+                                      >
+                                        <ImageIcon className="h-3.5 w-3.5" />{" "}
+                                        Upload Images
+                                      </div>
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        className="hidden"
+                                        data-ocid={`obs.item.${oi + 1}.upload_button`}
+                                        onChange={(e) =>
+                                          handleObsImageUpload(
+                                            sec.id,
+                                            obs.id,
+                                            e.target.files,
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                  ) : (
+                                    obs.images.length === 0 && (
+                                      <p className="text-xs text-gray-400">
+                                        No images
+                                      </p>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {canEdit && (
+                          <div className="flex justify-end mt-3">
+                            <Button
+                              type="button"
+                              size="sm"
+                              data-ocid={`obs.${sec.id}.primary_button`}
+                              onClick={() => addObservation(sec.id)}
+                              className="bg-[#2a3d33] hover:bg-[#3a4f44] text-white text-xs gap-1.5"
+                            >
+                              <PlusCircle className="h-3.5 w-3.5" /> Add
+                              Observation
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* ── end observations panel ── */}
                   </div>
                 )}
               </div>
@@ -750,7 +1111,6 @@ export default function QuestionnairePage({
             </Button>
           )}
           <div className="flex-1" />
-          {/* Auditor submit */}
           {canAudit && (
             <Button
               data-ocid="questionnaire.submit_button"
@@ -761,7 +1121,6 @@ export default function QuestionnairePage({
               <CheckCircle2 className="h-4 w-4" /> Submit
             </Button>
           )}
-          {/* Reviewer submit */}
           {canReview &&
             role === "reviewer" &&
             audit?.status === "Submitted" && (
@@ -773,7 +1132,6 @@ export default function QuestionnairePage({
                 <CheckCircle2 className="h-4 w-4" /> Submit for Review
               </Button>
             )}
-          {/* Manager/Admin approve+send back */}
           {canApprove && (
             <div className="flex gap-2">
               <Button
@@ -804,7 +1162,6 @@ export default function QuestionnairePage({
         </div>
       </div>
 
-      {/* Send back dialog */}
       <Dialog open={showSendBackDialog} onOpenChange={setShowSendBackDialog}>
         <DialogContent
           data-ocid="questionnaire.dialog"

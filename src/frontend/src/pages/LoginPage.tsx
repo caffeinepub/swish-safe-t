@@ -70,9 +70,9 @@ export default function LoginPage() {
         <div className="text-center mb-6">
           <div className="flex justify-center mb-4">
             <img
-              src="/assets/generated/safe_t_logo_transparent.png"
+              src="/assets/uploads/image-019d38f8-f918-70cd-9a4b-dbde1288b762-1.png"
               alt="SWiSH SAFE-T"
-              className="h-20 w-auto object-contain"
+              className="h-24 w-auto object-contain bg-white rounded-lg px-3 py-2"
             />
           </div>
           <p className="text-gray-400 text-sm">
