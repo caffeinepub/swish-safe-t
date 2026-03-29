@@ -13,7 +13,9 @@ import MixinStorage "blob-storage/Mixin";
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 
+
 // Automatic migration handling
+
 
 actor {
   // Storage
@@ -24,7 +26,6 @@ actor {
   include MixinAuthorization(accessControlState);
 
   // AppRole type mapping to AccessControl roles
-  // Admin/Manager -> #admin, Reviewer/Auditor -> #user
   public type AppRole = {
     #admin;
     #manager;
@@ -129,6 +130,28 @@ actor {
     #missingAnswers : [Text];
   };
 
+
+  // === APP USER MANAGEMENT (username/password auth, no IC identity needed for login) ===
+  public type AppUser = {
+    username : Text;
+    passwordHash : Text;
+    fullName : Text;
+    role : AppRole;
+    originalRole : AppRole;
+    elevatedUntil : ?Int;
+    isEnabled : Bool;
+  };
+
+  // Public type without password hash for safe external access
+  public type AppUserPublic = {
+    username : Text;
+    fullName : Text;
+    role : AppRole;
+    originalRole : AppRole;
+    elevatedUntil : ?Int;
+    isEnabled : Bool;
+  };
+
   // Internal Storage
   let userRecords = Map.empty<Principal, UserRecord>();
   let userProfiles = Map.empty<Principal, UserProfile>();
@@ -136,16 +159,22 @@ actor {
   let sections = Map.empty<Text, Section>();
   let questions = Map.empty<Text, Question>();
   let reports = Map.empty<Text, Report>();
+  // Stable storage for appUsers — survives canister upgrades
+  stable var stableAppUsers : [(Text, AppUser)] = [];
+  let appUsers = Map.empty<Text, AppUser>(); // populated in postupgrade
 
   // The setup passphrase for claiming admin role
   let ADMIN_SETUP_CODE : Text = "SWISH-SETUP-2026";
+
+  // Track if bootstrap has been used
+  stable var bootstrapUsed : Bool = false;
 
   // Internal Structures
   type AnswerKey = {
     reportId : Text;
     questionId : Text;
   };
-  func answerKeyCompare(a1 : AnswerKey, a2 : AnswerKey) : Order.Order {
+  func _answerKeyCompare(a1 : AnswerKey, a2 : AnswerKey) : Order.Order {
     let reportCompare = Text.compare(a1.reportId, a2.reportId);
     if (reportCompare == #equal) {
       Text.compare(a1.questionId, a2.questionId);
@@ -215,7 +244,7 @@ actor {
   };
 
   // Find Functions
-  func findClient(id : Text, trap : Bool) : ?Client {
+  func _findClient(id : Text, trap : Bool) : ?Client {
     let client = clients.get(id);
     if (trap and not client.isSome()) { Runtime.trap("Client not found") };
     client;
@@ -925,8 +954,10 @@ actor {
   };
 
   // Bootstrap admin: ANY logged-in user can claim admin with the correct setup code.
+  // This can only be used once to prevent abuse after initial setup.
   public shared ({ caller }) func bootstrapAdmin(name : Text, setupCode : Text) : async Text {
     if (caller.isAnonymous()) { Runtime.trap("Cannot bootstrap with anonymous identity") };
+    if (bootstrapUsed) { Runtime.trap("Bootstrap has already been used") };
     if (setupCode != ADMIN_SETUP_CODE) { Runtime.trap("Invalid setup code") };
 
     let user : UserRecord = {
@@ -943,6 +974,90 @@ actor {
     accessControlState.userRoles.add(caller, #admin);
     accessControlState.adminAssigned := true;
 
+    bootstrapUsed := true;
+
     "Bootstrap successful: you are now admin";
   };
+
+  // === APP USER API ===
+
+  // Get user's public profile — no IC auth required (credentials verified separately)
+  public query func getAppUserPublic(username : Text) : async ?AppUserPublic {
+    switch (appUsers.get(username.toLower())) {
+      case (null) { null };
+      case (?user) {
+        ?{
+          username = user.username;
+          fullName = user.fullName;
+          role = user.role;
+          originalRole = user.originalRole;
+          elevatedUntil = user.elevatedUntil;
+          isEnabled = user.isEnabled;
+        };
+      };
+    };
+  };
+
+  // Verify credentials — open to all callers, no IC auth needed
+  public shared func verifyAppUserCredentials(username : Text, passwordHash : Text) : async Bool {
+    switch (appUsers.get(username.toLower())) {
+      case (null) { false };
+      case (?user) {
+        user.passwordHash == passwordHash and user.isEnabled;
+      };
+    };
+  };
+
+  // Check if any admin app user exists (anonymous OK - needed for initial setup flow)
+  public query func appUserHasAdmin() : async Bool {
+    var found = false;
+    for (u in appUsers.values()) {
+      if (u.role == #admin and u.isEnabled) { found := true };
+    };
+    found;
+  };
+
+  // List all app users — open to all callers (returns public info only, no passwordHash)
+  public query func listAppUsers() : async [AppUserPublic] {
+    appUsers.values().toArray().map(
+      func(user : AppUser) : AppUserPublic {
+        {
+          username = user.username;
+          fullName = user.fullName;
+          role = user.role;
+          originalRole = user.originalRole;
+          elevatedUntil = user.elevatedUntil;
+          isEnabled = user.isEnabled;
+        };
+      }
+    );
+  };
+
+  // Create or update app user — no IC auth (app-level auth via username/password)
+  public shared func upsertAppUser(user : AppUser) : async () {
+    appUsers.add(user.username.toLower(), user);
+    stableAppUsers := appUsers.entries().toArray();
+  };
+
+  // Seed default admin — only works if no users exist yet
+  // No IC auth check: the setup form runs before any IC login
+  public shared func seedAppAdmin(user : AppUser) : async Bool {
+    if (appUsers.values().toArray().size() > 0) { return false };
+    appUsers.add(user.username.toLower(), user);
+    stableAppUsers := appUsers.entries().toArray();
+    true;
+  };
+
+  // Persist appUsers to stable storage before canister upgrade
+  system func preupgrade() {
+    stableAppUsers := appUsers.entries().toArray();
+  };
+
+  // Restore appUsers from stable storage after upgrade
+  system func postupgrade() {
+    for ((k, v) in stableAppUsers.vals()) {
+      appUsers.add(k, v);
+    };
+  };
+
 };

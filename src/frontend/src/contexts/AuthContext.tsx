@@ -6,6 +6,11 @@ import {
   useEffect,
   useState,
 } from "react";
+import {
+  getUserByUsernameFromBackend,
+  seedAdminToBackend,
+  verifyCredentialsFromBackend,
+} from "../lib/backendUserService";
 import { hashPassword } from "../lib/crypto";
 import {
   auditStore,
@@ -21,21 +26,14 @@ import {
   getSession,
   setSession,
 } from "../lib/session";
-import {
-  type StoredUser,
-  addUser,
-  checkTempAdminExpiry,
-  getUserByUsername,
-  getUsers,
-  hasAdmin,
-  isTempAdmin,
-} from "../lib/userStore";
+import { type StoredUser, isTempAdmin } from "../lib/userStore";
 
-const DATA_VERSION = "v3_remarks_per_question";
+const DATA_VERSION = "v8_stable_backend";
+const ADMIN_USERNAME = "APA_Arun";
+const ADMIN_PASSWORD = "SWiSH_SafeArun@21";
 
-function clearAllData() {
+function clearLocalData() {
   const keysToRemove = [
-    "swish_users",
     "swish_clients",
     "swish_sites",
     "swish_templates",
@@ -52,73 +50,36 @@ function clearAllData() {
   }
 }
 
-async function seedIfNeeded() {
-  // Version migration: clear and re-seed if data version changed
+async function ensureAdminSeeded() {
+  const adminHash = await hashPassword(ADMIN_USERNAME, ADMIN_PASSWORD);
+  await seedAdminToBackend(adminHash);
+}
+
+/** Seed local demo data (clients, sites, templates) — does NOT touch backend */
+function seedLocalDataIfNeeded() {
   const currentVersion = localStorage.getItem("swish_data_version");
   if (currentVersion !== DATA_VERSION) {
-    clearAllData();
+    clearLocalData();
     localStorage.setItem("swish_data_version", DATA_VERSION);
   }
 
-  const users = getUsers();
-  if (users.length > 0) return;
+  const clients = clientStore.getAll();
+  if (clients.length > 0) return;
 
-  const adminHash = await hashPassword("admin", "Admin@1234");
-  const admin = addUser({
-    username: "admin",
-    passwordHash: adminHash,
-    fullName: "Admin User",
-    role: "admin",
-    originalRole: "admin",
-    elevatedUntil: null,
-    isEnabled: true,
-  });
-  const a1Hash = await hashPassword("auditor1", "Audit@1234");
-  const auditor1 = addUser({
-    username: "auditor1",
-    passwordHash: a1Hash,
-    fullName: "Rajesh Kumar",
-    role: "auditor",
-    originalRole: "auditor",
-    elevatedUntil: null,
-    isEnabled: true,
-  });
-  const a2Hash = await hashPassword("auditor2", "Audit@1234");
-  const auditor2 = addUser({
-    username: "auditor2",
-    passwordHash: a2Hash,
-    fullName: "Priya Sharma",
-    role: "auditor",
-    originalRole: "auditor",
-    elevatedUntil: null,
-    isEnabled: true,
-  });
-  const r1Hash = await hashPassword("reviewer1", "Review@1234");
-  const reviewer1 = addUser({
-    username: "reviewer1",
-    passwordHash: r1Hash,
-    fullName: "Anita Patel",
-    role: "reviewer",
-    originalRole: "reviewer",
-    elevatedUntil: null,
-    isEnabled: true,
-  });
-  const m1Hash = await hashPassword("manager1", "Manager@1234");
-  const manager1 = addUser({
-    username: "manager1",
-    passwordHash: m1Hash,
-    fullName: "Vikram Singh",
-    role: "manager",
-    originalRole: "manager",
-    elevatedUntil: null,
-    isEnabled: true,
-  });
+  const DEMO_AUDITOR_1_ID = "demo_auditor_1";
+  const DEMO_AUDITOR_1_NAME = "Rajesh Kumar";
+  const DEMO_AUDITOR_2_ID = "demo_auditor_2";
+  const DEMO_AUDITOR_2_NAME = "Priya Sharma";
+  const DEMO_REVIEWER_ID = "demo_reviewer_1";
+  const DEMO_REVIEWER_NAME = "Anita Patel";
+  const DEMO_MANAGER_ID = "demo_manager_1";
+  const DEMO_MANAGER_NAME = "Vikram Singh";
+  const ADMIN_ID = ADMIN_USERNAME;
 
-  // Create sample template with new schema
   const tmpl = templateStore.add({
     name: "Banking Branch Electrical Audit",
     description: "Standard electrical safety audit for banking branches",
-    createdBy: admin.id,
+    createdBy: ADMIN_ID,
     createdAt: Date.now(),
     isEnabled: true,
   });
@@ -261,7 +222,7 @@ async function seedIfNeeded() {
     contactName: "Suresh Mehta",
     contactEmail: "suresh@hdfc.com",
     isEnabled: true,
-    createdBy: admin.id,
+    createdBy: ADMIN_ID,
   });
   const idbi = clientStore.add({
     name: "IDBI Bank",
@@ -269,7 +230,7 @@ async function seedIfNeeded() {
     contactName: "Kavita Rao",
     contactEmail: "kavita@idbi.com",
     isEnabled: true,
-    createdBy: admin.id,
+    createdBy: ADMIN_ID,
   });
 
   const s1 = siteStore.add({
@@ -281,15 +242,15 @@ async function seedIfNeeded() {
     branchState: "Maharashtra",
     branchType: "Metro",
     scheduledAuditDate: "2026-04-15",
-    auditorId: auditor1.id,
-    auditorName: auditor1.fullName,
-    reviewerId: reviewer1.id,
-    reviewerName: reviewer1.fullName,
-    managerId: manager1.id,
-    managerName: manager1.fullName,
+    auditorId: DEMO_AUDITOR_1_ID,
+    auditorName: DEMO_AUDITOR_1_NAME,
+    reviewerId: DEMO_REVIEWER_ID,
+    reviewerName: DEMO_REVIEWER_NAME,
+    managerId: DEMO_MANAGER_ID,
+    managerName: DEMO_MANAGER_NAME,
     templateId: tmpl.id,
     isEnabled: true,
-    createdBy: admin.id,
+    createdBy: ADMIN_ID,
   });
   const s2 = siteStore.add({
     clientId: hdfc.id,
@@ -300,15 +261,15 @@ async function seedIfNeeded() {
     branchState: "Maharashtra",
     branchType: "Urban",
     scheduledAuditDate: "2026-04-22",
-    auditorId: auditor2.id,
-    auditorName: auditor2.fullName,
-    reviewerId: reviewer1.id,
-    reviewerName: reviewer1.fullName,
-    managerId: manager1.id,
-    managerName: manager1.fullName,
+    auditorId: DEMO_AUDITOR_2_ID,
+    auditorName: DEMO_AUDITOR_2_NAME,
+    reviewerId: DEMO_REVIEWER_ID,
+    reviewerName: DEMO_REVIEWER_NAME,
+    managerId: DEMO_MANAGER_ID,
+    managerName: DEMO_MANAGER_NAME,
     templateId: tmpl.id,
     isEnabled: true,
-    createdBy: admin.id,
+    createdBy: ADMIN_ID,
   });
   const s3 = siteStore.add({
     clientId: hdfc.id,
@@ -319,55 +280,17 @@ async function seedIfNeeded() {
     branchState: "Maharashtra",
     branchType: "Urban",
     scheduledAuditDate: "2026-05-03",
-    auditorId: auditor1.id,
-    auditorName: auditor1.fullName,
-    reviewerId: reviewer1.id,
-    reviewerName: reviewer1.fullName,
-    managerId: manager1.id,
-    managerName: manager1.fullName,
+    auditorId: DEMO_AUDITOR_1_ID,
+    auditorName: DEMO_AUDITOR_1_NAME,
+    reviewerId: DEMO_REVIEWER_ID,
+    reviewerName: DEMO_REVIEWER_NAME,
+    managerId: DEMO_MANAGER_ID,
+    managerName: DEMO_MANAGER_NAME,
     templateId: tmpl.id,
     isEnabled: true,
-    createdBy: admin.id,
+    createdBy: ADMIN_ID,
   });
   const s4 = siteStore.add({
-    clientId: hdfc.id,
-    branchName: "HDFC Powai",
-    branchAddress: "Powai, Mumbai",
-    branchCode: "HDFC-MUM-004",
-    branchCity: "Mumbai",
-    branchState: "Maharashtra",
-    branchType: "Urban",
-    scheduledAuditDate: "2026-05-10",
-    auditorId: auditor2.id,
-    auditorName: auditor2.fullName,
-    reviewerId: reviewer1.id,
-    reviewerName: reviewer1.fullName,
-    managerId: manager1.id,
-    managerName: manager1.fullName,
-    templateId: tmpl.id,
-    isEnabled: true,
-    createdBy: admin.id,
-  });
-  const s5 = siteStore.add({
-    clientId: hdfc.id,
-    branchName: "HDFC Thane",
-    branchAddress: "Thane West, Maharashtra",
-    branchCode: "HDFC-THA-005",
-    branchCity: "Thane",
-    branchState: "Maharashtra",
-    branchType: "Semi-urban",
-    scheduledAuditDate: "2026-05-20",
-    auditorId: auditor1.id,
-    auditorName: auditor1.fullName,
-    reviewerId: reviewer1.id,
-    reviewerName: reviewer1.fullName,
-    managerId: manager1.id,
-    managerName: manager1.fullName,
-    templateId: tmpl.id,
-    isEnabled: true,
-    createdBy: admin.id,
-  });
-  const s6 = siteStore.add({
     clientId: idbi.id,
     branchName: "IDBI Connaught Place",
     branchAddress: "Connaught Place, New Delhi",
@@ -376,17 +299,17 @@ async function seedIfNeeded() {
     branchState: "Delhi",
     branchType: "Metro",
     scheduledAuditDate: "2026-04-28",
-    auditorId: auditor2.id,
-    auditorName: auditor2.fullName,
-    reviewerId: reviewer1.id,
-    reviewerName: reviewer1.fullName,
-    managerId: manager1.id,
-    managerName: manager1.fullName,
+    auditorId: DEMO_AUDITOR_2_ID,
+    auditorName: DEMO_AUDITOR_2_NAME,
+    reviewerId: DEMO_REVIEWER_ID,
+    reviewerName: DEMO_REVIEWER_NAME,
+    managerId: DEMO_MANAGER_ID,
+    managerName: DEMO_MANAGER_NAME,
     templateId: tmpl.id,
     isEnabled: true,
-    createdBy: admin.id,
+    createdBy: ADMIN_ID,
   });
-  const s7 = siteStore.add({
+  const s5 = siteStore.add({
     clientId: idbi.id,
     branchName: "IDBI Karol Bagh",
     branchAddress: "Karol Bagh, New Delhi",
@@ -395,122 +318,71 @@ async function seedIfNeeded() {
     branchState: "Delhi",
     branchType: "Urban",
     scheduledAuditDate: "2026-05-08",
-    auditorId: auditor1.id,
-    auditorName: auditor1.fullName,
-    reviewerId: reviewer1.id,
-    reviewerName: reviewer1.fullName,
-    managerId: manager1.id,
-    managerName: manager1.fullName,
+    auditorId: DEMO_AUDITOR_1_ID,
+    auditorName: DEMO_AUDITOR_1_NAME,
+    reviewerId: DEMO_REVIEWER_ID,
+    reviewerName: DEMO_REVIEWER_NAME,
+    managerId: DEMO_MANAGER_ID,
+    managerName: DEMO_MANAGER_NAME,
     templateId: tmpl.id,
     isEnabled: true,
-    createdBy: admin.id,
-  });
-  const s8 = siteStore.add({
-    clientId: idbi.id,
-    branchName: "IDBI Lajpat Nagar",
-    branchAddress: "Lajpat Nagar, New Delhi",
-    branchCode: "IDBI-DEL-003",
-    branchCity: "New Delhi",
-    branchState: "Delhi",
-    branchType: "Urban",
-    scheduledAuditDate: "2026-05-15",
-    auditorId: auditor2.id,
-    auditorName: auditor2.fullName,
-    reviewerId: reviewer1.id,
-    reviewerName: reviewer1.fullName,
-    managerId: manager1.id,
-    managerName: manager1.fullName,
-    templateId: tmpl.id,
-    isEnabled: true,
-    createdBy: admin.id,
+    createdBy: ADMIN_ID,
   });
 
   const now = Date.now();
   const mo = 30 * 24 * 60 * 60 * 1000;
-  const samples: Array<{
-    siteId: string;
-    clientId: string;
-    offset: number;
-    status: "Draft" | "Submitted" | "Reviewed" | "Completed";
-    auditorId: string;
-    auditorName: string;
-  }> = [
+  for (const [, data] of [
     {
       siteId: s1.id,
       clientId: hdfc.id,
       offset: 0,
-      status: "Draft",
-      auditorId: auditor1.id,
-      auditorName: auditor1.fullName,
+      status: "Draft" as const,
+      auditorId: DEMO_AUDITOR_1_ID,
+      auditorName: DEMO_AUDITOR_1_NAME,
     },
     {
       siteId: s2.id,
       clientId: hdfc.id,
       offset: 1,
-      status: "Submitted",
-      auditorId: auditor2.id,
-      auditorName: auditor2.fullName,
+      status: "Submitted" as const,
+      auditorId: DEMO_AUDITOR_2_ID,
+      auditorName: DEMO_AUDITOR_2_NAME,
     },
     {
       siteId: s3.id,
       clientId: hdfc.id,
       offset: 1,
-      status: "Reviewed",
-      auditorId: auditor1.id,
-      auditorName: auditor1.fullName,
+      status: "Reviewed" as const,
+      auditorId: DEMO_AUDITOR_1_ID,
+      auditorName: DEMO_AUDITOR_1_NAME,
     },
     {
       siteId: s4.id,
-      clientId: hdfc.id,
+      clientId: idbi.id,
       offset: 2,
-      status: "Completed",
-      auditorId: auditor2.id,
-      auditorName: auditor2.fullName,
+      status: "Completed" as const,
+      auditorId: DEMO_AUDITOR_2_ID,
+      auditorName: DEMO_AUDITOR_2_NAME,
     },
     {
       siteId: s5.id,
-      clientId: hdfc.id,
-      offset: 2,
-      status: "Submitted",
-      auditorId: auditor1.id,
-      auditorName: auditor1.fullName,
-    },
-    {
-      siteId: s6.id,
       clientId: idbi.id,
       offset: 3,
-      status: "Completed",
-      auditorId: auditor2.id,
-      auditorName: auditor2.fullName,
+      status: "Reviewed" as const,
+      auditorId: DEMO_AUDITOR_1_ID,
+      auditorName: DEMO_AUDITOR_1_NAME,
     },
-    {
-      siteId: s7.id,
-      clientId: idbi.id,
-      offset: 3,
-      status: "Reviewed",
-      auditorId: auditor1.id,
-      auditorName: auditor1.fullName,
-    },
-    {
-      siteId: s8.id,
-      clientId: idbi.id,
-      offset: 4,
-      status: "Draft",
-      auditorId: auditor2.id,
-      auditorName: auditor2.fullName,
-    },
-  ];
-  for (const a of samples) {
+  ].entries()) {
     auditStore.add({
-      siteId: a.siteId,
-      clientId: a.clientId,
-      auditorId: a.auditorId,
-      auditorName: a.auditorName,
-      status: a.status,
+      siteId: data.siteId,
+      clientId: data.clientId,
+      auditorId: data.auditorId,
+      auditorName: data.auditorName,
+      status: data.status,
       answersJson: "{}",
       reviewComment: "",
-      lastSavedAt: now - a.offset * mo,
-      startedAt: now - a.offset * mo,
+      lastSavedAt: now - data.offset * mo,
+      startedAt: now - data.offset * mo,
     });
   }
 }
@@ -528,51 +400,85 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue>({
   session: null,
-  isLoading: true,
+  isLoading: false,
   login: async () => ({ success: false }),
   logout: () => {},
   refresh: () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSessionState] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const init = useCallback(async () => {
-    await seedIfNeeded();
-    const existing = getSession();
-    if (existing) {
-      checkTempAdminExpiry(existing.userId);
-      const freshUser = getUserByUsername(existing.username);
-      if (freshUser?.isEnabled) {
-        setSessionState(setSession(freshUser));
-      } else {
-        clearSession();
-      }
-    }
-    setIsLoading(false);
-  }, []);
+  // Restore session synchronously from localStorage so login screen shows INSTANTLY
+  const [session, setSessionState] = useState<Session | null>(() =>
+    getSession(),
+  );
+  // isLoading is NEVER true on startup — login screen must show immediately
+  const [isLoading] = useState(false);
 
   useEffect(() => {
-    init();
-  }, [init]);
+    // 1. Seed local demo data (localStorage, synchronous-ish)
+    seedLocalDataIfNeeded();
+
+    // 2. Seed admin to backend in background — fire and forget, never blocks UI
+    ensureAdminSeeded().catch(() => {});
+
+    // 3. If we have a cached session, silently validate it against backend in background
+    const existing = getSession();
+    if (existing) {
+      getUserByUsernameFromBackend(existing.username)
+        .then((freshUser) => {
+          if (freshUser?.isEnabled) {
+            setSessionState(setSession(freshUser));
+          } else if (freshUser && !freshUser.isEnabled) {
+            // Account disabled — log out
+            clearSession();
+            setSessionState(null);
+          }
+          // If freshUser is null (backend unreachable), keep the cached session
+        })
+        .catch(() => {}); // Never crash on background validation failure
+    }
+  }, []);
 
   const login = useCallback(async (username: string, password: string) => {
-    const user = getUserByUsername(username);
-    if (!user) return { success: false, error: "Invalid username or password" };
-    if (!user.isEnabled)
+    try {
+      const hash = await hashPassword(username, password);
+
+      // Use verifyAppUserCredentials — the correct backend API
+      let valid = await verifyCredentialsFromBackend(username, hash);
+
+      // Self-healing: if admin verification fails, the canister may be fresh.
+      // Re-seed the admin and retry once.
+      if (!valid && username.toLowerCase() === ADMIN_USERNAME.toLowerCase()) {
+        await ensureAdminSeeded();
+        valid = await verifyCredentialsFromBackend(username, hash);
+      }
+
+      if (!valid) {
+        return { success: false, error: "Invalid username or password" };
+      }
+
+      // Fetch user profile
+      const user = await getUserByUsernameFromBackend(username);
+      if (!user) {
+        return { success: false, error: "User not found. Please try again." };
+      }
+      if (!user.isEnabled) {
+        return {
+          success: false,
+          error: "Your account has been disabled. Contact your admin.",
+        };
+      }
+
+      const sess = setSession(user);
+      setSessionState(sess);
+      return { success: true };
+    } catch (err) {
+      console.error("[AuthContext] login error:", err);
       return {
         success: false,
-        error: "Your account has been disabled. Contact your admin.",
+        error: "Connection error. Please check your network and try again.",
       };
-    const hash = await hashPassword(username, password);
-    if (hash !== user.passwordHash)
-      return { success: false, error: "Invalid username or password" };
-    checkTempAdminExpiry(user.id);
-    const freshUser = getUserByUsername(username)!;
-    const sess = setSession(freshUser);
-    setSessionState(sess);
-    return { success: true };
+    }
   }, []);
 
   const logout = useCallback(() => {
@@ -580,12 +486,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSessionState(null);
   }, []);
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     const existing = getSession();
     if (existing) {
-      checkTempAdminExpiry(existing.userId);
-      const freshUser = getUserByUsername(existing.username);
-      if (freshUser?.isEnabled) setSessionState(setSession(freshUser));
+      const freshUser = await getUserByUsernameFromBackend(existing.username);
+      if (freshUser?.isEnabled) {
+        setSessionState(setSession(freshUser));
+      } else if (freshUser && !freshUser.isEnabled) {
+        clearSession();
+        setSessionState(null);
+      }
     }
   }, []);
 
@@ -601,4 +511,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-export { isTempAdmin, hasAdmin, type StoredUser };
+export { isTempAdmin, type StoredUser };

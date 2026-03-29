@@ -59,6 +59,14 @@ export const Section = IDL.Record({
   'name' : IDL.Text,
   'enabled' : IDL.Bool,
 });
+export const AppUserPublic = IDL.Record({
+  'username' : IDL.Text,
+  'originalRole' : AppRole,
+  'elevatedUntil' : IDL.Opt(IDL.Int),
+  'role' : AppRole,
+  'fullName' : IDL.Text,
+  'isEnabled' : IDL.Bool,
+});
 export const UserProfile = IDL.Record({ 'name' : IDL.Text });
 export const ReportStatus = IDL.Variant({
   'submitted' : IDL.Null,
@@ -90,6 +98,15 @@ export const Client = IDL.Record({
   'id' : IDL.Text,
   'name' : IDL.Text,
   'enabled' : IDL.Bool,
+});
+export const AppUser = IDL.Record({
+  'username' : IDL.Text,
+  'originalRole' : AppRole,
+  'elevatedUntil' : IDL.Opt(IDL.Int),
+  'role' : AppRole,
+  'fullName' : IDL.Text,
+  'isEnabled' : IDL.Bool,
+  'passwordHash' : IDL.Text,
 });
 export const SubmitResult = IDL.Variant({
   'missingAnswers' : IDL.Vec(IDL.Text),
@@ -136,6 +153,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'addOrUpdateUser' : IDL.Func([UserRecord], [IDL.Text], []),
+  'appUserHasAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'approveReport' : IDL.Func([IDL.Text], [], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'bootstrapAdmin' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
@@ -148,6 +166,11 @@ export const idlService = IDL.Service({
   'disableQuestion' : IDL.Func([IDL.Text], [], []),
   'getAllQuestions' : IDL.Func([], [IDL.Vec(Question)], ['query']),
   'getAllSections' : IDL.Func([], [IDL.Vec(Section)], ['query']),
+  'getAppUserPublic' : IDL.Func(
+      [IDL.Text],
+      [IDL.Opt(AppUserPublic)],
+      ['query'],
+    ),
   'getCallerAppRole' : IDL.Func([], [AppRole], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
@@ -178,6 +201,7 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'listAppUsers' : IDL.Func([], [IDL.Vec(AppUserPublic)], ['query']),
   'listClients' : IDL.Func([], [IDL.Vec(Client)], ['query']),
   'listReports' : IDL.Func([], [IDL.Vec(Report)], ['query']),
   'listUsers' : IDL.Func([], [IDL.Vec(UserRecord)], ['query']),
@@ -185,9 +209,12 @@ export const idlService = IDL.Service({
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'saveManagerAnswers' : IDL.Func([IDL.Text, IDL.Vec(Answer)], [], []),
   'saveReviewerAnswers' : IDL.Func([IDL.Text, IDL.Vec(Answer)], [IDL.Text], []),
+  'seedAppAdmin' : IDL.Func([AppUser], [IDL.Bool], []),
   'sendBackReport' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
   'submitReport' : IDL.Func([IDL.Text], [SubmitResult], []),
   'submitReview' : IDL.Func([IDL.Text], [], []),
+  'upsertAppUser' : IDL.Func([AppUser], [], []),
+  'verifyAppUserCredentials' : IDL.Func([IDL.Text, IDL.Text], [IDL.Bool], []),
 });
 
 export const idlInitArgs = [];
@@ -244,6 +271,14 @@ export const idlFactory = ({ IDL }) => {
     'name' : IDL.Text,
     'enabled' : IDL.Bool,
   });
+  const AppUserPublic = IDL.Record({
+    'username' : IDL.Text,
+    'originalRole' : AppRole,
+    'elevatedUntil' : IDL.Opt(IDL.Int),
+    'role' : AppRole,
+    'fullName' : IDL.Text,
+    'isEnabled' : IDL.Bool,
+  });
   const UserProfile = IDL.Record({ 'name' : IDL.Text });
   const ReportStatus = IDL.Variant({
     'submitted' : IDL.Null,
@@ -275,6 +310,15 @@ export const idlFactory = ({ IDL }) => {
     'id' : IDL.Text,
     'name' : IDL.Text,
     'enabled' : IDL.Bool,
+  });
+  const AppUser = IDL.Record({
+    'username' : IDL.Text,
+    'originalRole' : AppRole,
+    'elevatedUntil' : IDL.Opt(IDL.Int),
+    'role' : AppRole,
+    'fullName' : IDL.Text,
+    'isEnabled' : IDL.Bool,
+    'passwordHash' : IDL.Text,
   });
   const SubmitResult = IDL.Variant({
     'missingAnswers' : IDL.Vec(IDL.Text),
@@ -321,6 +365,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'addOrUpdateUser' : IDL.Func([UserRecord], [IDL.Text], []),
+    'appUserHasAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'approveReport' : IDL.Func([IDL.Text], [], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'bootstrapAdmin' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
@@ -333,6 +378,11 @@ export const idlFactory = ({ IDL }) => {
     'disableQuestion' : IDL.Func([IDL.Text], [], []),
     'getAllQuestions' : IDL.Func([], [IDL.Vec(Question)], ['query']),
     'getAllSections' : IDL.Func([], [IDL.Vec(Section)], ['query']),
+    'getAppUserPublic' : IDL.Func(
+        [IDL.Text],
+        [IDL.Opt(AppUserPublic)],
+        ['query'],
+      ),
     'getCallerAppRole' : IDL.Func([], [AppRole], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
@@ -367,6 +417,7 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'listAppUsers' : IDL.Func([], [IDL.Vec(AppUserPublic)], ['query']),
     'listClients' : IDL.Func([], [IDL.Vec(Client)], ['query']),
     'listReports' : IDL.Func([], [IDL.Vec(Report)], ['query']),
     'listUsers' : IDL.Func([], [IDL.Vec(UserRecord)], ['query']),
@@ -382,9 +433,12 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Text],
         [],
       ),
+    'seedAppAdmin' : IDL.Func([AppUser], [IDL.Bool], []),
     'sendBackReport' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
     'submitReport' : IDL.Func([IDL.Text], [SubmitResult], []),
     'submitReview' : IDL.Func([IDL.Text], [], []),
+    'upsertAppUser' : IDL.Func([AppUser], [], []),
+    'verifyAppUserCredentials' : IDL.Func([IDL.Text, IDL.Text], [IDL.Bool], []),
   });
 };
 

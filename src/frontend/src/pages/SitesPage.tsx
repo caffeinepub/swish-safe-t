@@ -40,19 +40,22 @@ import {
   Building2,
   CalendarDays,
   FileText,
+  Loader2,
   MapPin,
   Pencil,
   Plus,
   Trash2,
   User,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
 import Sidebar from "../components/Sidebar";
+import { useActor } from "../hooks/useActor";
+import { listUsersFromBackend } from "../lib/backendUserService";
 import { type Site, siteStore, templateStore } from "../lib/dataStore";
 import type { Session } from "../lib/session";
-import { getUsers } from "../lib/userStore";
+import type { StoredUser } from "../lib/userStore";
 
 interface Props {
   session: Session;
@@ -141,13 +144,23 @@ export default function SitesPage({
 }: Props) {
   const role = session.role;
   const canEditDelete = role === "admin" || role === "manager";
-  const users = getUsers().filter((u) => u.isEnabled);
+  const { actor, isFetching } = useActor();
+  const [backendUsers, setBackendUsers] = useState<StoredUser[]>([]);
+  const templates = templateStore.getAll();
+
+  // Load users from backend
+  useEffect(() => {
+    if (actor && !isFetching) {
+      listUsersFromBackend(actor).then(setBackendUsers).catch(console.error);
+    }
+  }, [actor, isFetching]);
+
+  const users = backendUsers.filter((u) => u.isEnabled);
   const auditors = users.filter((u) => u.role === "auditor");
   const reviewers = users.filter((u) => u.role === "reviewer");
   const managers = users.filter(
     (u) => u.role === "manager" || u.role === "admin",
   );
-  const templates = templateStore.getAll();
 
   const [sites, setSites] = useState<Site[]>(() =>
     siteStore.getByClient(clientId),
@@ -290,13 +303,17 @@ export default function SitesPage({
                 size="sm"
                 onClick={openAdd}
                 className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
+                data-ocid="sites.primary_button"
               >
                 <Plus className="h-4 w-4" /> Add Site
               </Button>
             </CardHeader>
             <CardContent className="p-0">
               {sites.length === 0 ? (
-                <div className="text-center py-16">
+                <div
+                  className="text-center py-16"
+                  data-ocid="sites.empty_state"
+                >
                   <MapPin className="h-10 w-10 mx-auto mb-3 text-gray-700" />
                   <p className="text-gray-400 text-sm">No branch sites yet.</p>
                   <p className="text-gray-600 text-xs mt-1">
@@ -585,6 +602,9 @@ export default function SitesPage({
             <div>
               <h3 className="text-[10px] font-semibold text-[#8aad3a] uppercase tracking-widest mb-3 flex items-center gap-2">
                 <User className="h-3.5 w-3.5" /> Assignments
+                {isFetching && (
+                  <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+                )}
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
@@ -620,7 +640,7 @@ export default function SitesPage({
                       )}
                     </SelectContent>
                   </Select>
-                  {auditors.length === 0 && (
+                  {auditors.length === 0 && !isFetching && (
                     <p className="text-xs text-yellow-400">
                       Add auditor users in Admin Panel first.
                     </p>
@@ -735,6 +755,7 @@ export default function SitesPage({
               variant="outline"
               onClick={() => setShowForm(false)}
               className="border-[#3a4f44] text-gray-300 hover:bg-[#2a3d33]"
+              data-ocid="sites.cancel_button"
             >
               Cancel
             </Button>
@@ -742,6 +763,7 @@ export default function SitesPage({
               onClick={handleSave}
               disabled={saving}
               className="bg-[#4a7c59] hover:bg-[#3d6849] text-white"
+              data-ocid="sites.submit_button"
             >
               {editSite ? "Update Site" : "Add Site"}
             </Button>
@@ -765,11 +787,15 @@ export default function SitesPage({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-[#3a4f44] text-gray-300">
+            <AlertDialogCancel
+              className="border-[#3a4f44] text-gray-300"
+              data-ocid="sites.cancel_button"
+            >
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-700 hover:bg-red-800 text-white"
+              data-ocid="sites.confirm_button"
               onClick={() => {
                 if (deleteTarget) {
                   siteStore.delete(deleteTarget.id);

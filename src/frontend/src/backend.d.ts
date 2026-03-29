@@ -7,6 +7,9 @@ export interface None {
     __kind__: "None";
 }
 export type Option<T> = Some<T> | None;
+export interface UserProfile {
+    name: string;
+}
 export type SubmitResult = {
     __kind__: "missingAnswers";
     missingAnswers: Array<string>;
@@ -33,6 +36,15 @@ export interface UserRecord {
     role: AppRole;
     enabled: boolean;
 }
+export interface AppUser {
+    username: string;
+    originalRole: AppRole;
+    elevatedUntil?: bigint;
+    role: AppRole;
+    fullName: string;
+    isEnabled: boolean;
+    passwordHash: string;
+}
 export interface Answer {
     answerValue: string;
     questionId: string;
@@ -56,15 +68,20 @@ export interface Client {
     name: string;
     enabled: boolean;
 }
+export interface AppUserPublic {
+    username: string;
+    originalRole: AppRole;
+    elevatedUntil?: bigint;
+    role: AppRole;
+    fullName: string;
+    isEnabled: boolean;
+}
 export interface Section {
     id: string;
     clientId: string;
     order: bigint;
     name: string;
     enabled: boolean;
-}
-export interface UserProfile {
-    name: string;
 }
 export enum AppRole {
     manager = "manager",
@@ -93,6 +110,7 @@ export interface backendInterface {
     addOrUpdateQuestion(input: Question): Promise<string>;
     addOrUpdateSection(id: string | null, name: string, order: bigint, clientId: string, enabled: boolean): Promise<string>;
     addOrUpdateUser(input: UserRecord): Promise<string>;
+    appUserHasAdmin(): Promise<boolean>;
     approveReport(reportId: string): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     bootstrapAdmin(name: string, setupCode: string): Promise<string>;
@@ -101,6 +119,7 @@ export interface backendInterface {
     disableQuestion(id: string): Promise<void>;
     getAllQuestions(): Promise<Array<Question>>;
     getAllSections(): Promise<Array<Section>>;
+    getAppUserPublic(username: string): Promise<AppUserPublic | null>;
     getCallerAppRole(): Promise<AppRole>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
@@ -117,6 +136,7 @@ export interface backendInterface {
     getUser(inputPrincipal: Principal): Promise<UserRecord>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
+    listAppUsers(): Promise<Array<AppUserPublic>>;
     listClients(): Promise<Array<Client>>;
     listReports(): Promise<Array<Report>>;
     listUsers(): Promise<Array<UserRecord>>;
@@ -124,7 +144,10 @@ export interface backendInterface {
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     saveManagerAnswers(reportId: string, answers: Array<Answer>): Promise<void>;
     saveReviewerAnswers(reportId: string, answers: Array<Answer>): Promise<string>;
+    seedAppAdmin(user: AppUser): Promise<boolean>;
     sendBackReport(reportId: string, comments: string): Promise<string>;
     submitReport(reportId: string): Promise<SubmitResult>;
     submitReview(reportId: string): Promise<void>;
+    upsertAppUser(user: AppUser): Promise<void>;
+    verifyAppUserCredentials(username: string, passwordHash: string): Promise<boolean>;
 }

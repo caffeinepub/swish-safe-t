@@ -20,6 +20,23 @@ export type AppRole = { 'manager' : null } |
   { 'admin' : null } |
   { 'auditor' : null } |
   { 'reviewer' : null };
+export interface AppUser {
+  'username' : string,
+  'originalRole' : AppRole,
+  'elevatedUntil' : [] | [bigint],
+  'role' : AppRole,
+  'fullName' : string,
+  'isEnabled' : boolean,
+  'passwordHash' : string,
+}
+export interface AppUserPublic {
+  'username' : string,
+  'originalRole' : AppRole,
+  'elevatedUntil' : [] | [bigint],
+  'role' : AppRole,
+  'fullName' : string,
+  'isEnabled' : boolean,
+}
 export interface Client { 'id' : string, 'name' : string, 'enabled' : boolean }
 export interface Question {
   'id' : string,
@@ -107,6 +124,7 @@ export interface _SERVICE {
     string
   >,
   'addOrUpdateUser' : ActorMethod<[UserRecord], string>,
+  'appUserHasAdmin' : ActorMethod<[], boolean>,
   'approveReport' : ActorMethod<[string], undefined>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'bootstrapAdmin' : ActorMethod<[string, string], string>,
@@ -115,6 +133,7 @@ export interface _SERVICE {
   'disableQuestion' : ActorMethod<[string], undefined>,
   'getAllQuestions' : ActorMethod<[], Array<Question>>,
   'getAllSections' : ActorMethod<[], Array<Section>>,
+  'getAppUserPublic' : ActorMethod<[string], [] | [AppUserPublic]>,
   'getCallerAppRole' : ActorMethod<[], AppRole>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
@@ -130,6 +149,7 @@ export interface _SERVICE {
   'getUser' : ActorMethod<[Principal], UserRecord>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'listAppUsers' : ActorMethod<[], Array<AppUserPublic>>,
   'listClients' : ActorMethod<[], Array<Client>>,
   'listReports' : ActorMethod<[], Array<Report>>,
   'listUsers' : ActorMethod<[], Array<UserRecord>>,
@@ -137,9 +157,12 @@ export interface _SERVICE {
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'saveManagerAnswers' : ActorMethod<[string, Array<Answer>], undefined>,
   'saveReviewerAnswers' : ActorMethod<[string, Array<Answer>], string>,
+  'seedAppAdmin' : ActorMethod<[AppUser], boolean>,
   'sendBackReport' : ActorMethod<[string, string], string>,
   'submitReport' : ActorMethod<[string], SubmitResult>,
   'submitReview' : ActorMethod<[string], undefined>,
+  'upsertAppUser' : ActorMethod<[AppUser], undefined>,
+  'verifyAppUserCredentials' : ActorMethod<[string, string], boolean>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

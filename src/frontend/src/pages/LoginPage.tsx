@@ -6,8 +6,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import { hashPassword } from "../lib/crypto";
-import { hasAdmin } from "../lib/userStore";
-import { addUser } from "../lib/userStore";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -21,9 +19,8 @@ export default function LoginPage() {
   const [setupPass, setSetupPass] = useState("");
   const [setupCode, setSetupCode] = useState("");
   const [setupLoading, setSetupLoading] = useState(false);
-  const [showSetup, setShowSetup] = useState(false);
-
-  const adminExists = hasAdmin();
+  const [showSetupCard, setShowSetupCard] = useState(false);
+  const [showSetupForm, setShowSetupForm] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,21 +43,38 @@ export default function LoginPage() {
       return;
     }
     setSetupLoading(true);
-    const hash = await hashPassword(setupUser.trim(), setupPass);
-    addUser({
-      username: setupUser.trim(),
-      passwordHash: hash,
-      fullName: setupName.trim(),
-      role: "admin",
-      originalRole: "admin",
-      elevatedUntil: null,
-      isEnabled: true,
-    });
-    toast.success("Admin account created! You can now log in.");
-    setSetupLoading(false);
-    setShowSetup(false);
-    setUsername(setupUser.trim());
-    setPassword(setupPass);
+    try {
+      const hash = await hashPassword(setupUser.trim(), setupPass);
+      const actor = await import("../config").then((m) =>
+        m.createActorWithConfig(),
+      );
+      const appUser = {
+        username: setupUser.trim().toLowerCase(),
+        passwordHash: hash,
+        fullName: setupName.trim(),
+        role: { admin: null } as { admin: null },
+        originalRole: { admin: null } as { admin: null },
+        elevatedUntil: [] as [],
+        isEnabled: true,
+      };
+      const seeded: boolean = await (actor as any).seedAppAdmin(appUser);
+      if (seeded) {
+        toast.success("Admin account created! You can now log in.");
+        setShowSetupCard(false);
+        setShowSetupForm(false);
+        setUsername(setupUser.trim());
+        setPassword(setupPass);
+      } else {
+        toast.error("An admin already exists. Please sign in directly.");
+        setShowSetupCard(false);
+        setShowSetupForm(false);
+      }
+    } catch (err) {
+      toast.error("Setup failed. Please try again.");
+      console.error(err);
+    } finally {
+      setSetupLoading(false);
+    }
   };
 
   return (
@@ -93,7 +107,7 @@ export default function LoginPage() {
                 </Label>
                 <Input
                   id="username"
-                  data-ocid="login.username.input"
+                  data-ocid="login.input"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Enter your username"
@@ -109,7 +123,7 @@ export default function LoginPage() {
                 <Input
                   id="password"
                   type="password"
-                  data-ocid="login.password.input"
+                  data-ocid="login.textarea"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
@@ -122,23 +136,26 @@ export default function LoginPage() {
                 type="submit"
                 className="w-full bg-[#4a7c59] hover:bg-[#3d6849] text-white"
                 disabled={loading}
-                data-ocid="login.submit.button"
+                data-ocid="login.submit_button"
               >
                 {loading ? "Signing in..." : "Sign In"}
               </Button>
             </form>
-            <div className="mt-4 p-3 bg-[#1a2420] rounded-md">
-              <p className="text-xs text-gray-400 text-center">
-                Default admin:{" "}
-                <span className="text-[#6aab7e] font-mono">admin</span> /{" "}
-                <span className="text-[#6aab7e] font-mono">Admin@1234</span>
-              </p>
-            </div>
           </CardContent>
         </Card>
 
-        {/* First-time setup */}
-        {!adminExists && (
+        {/* First-time setup toggle — always accessible */}
+        {!showSetupCard ? (
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => setShowSetupCard(true)}
+              className="text-xs text-gray-500 hover:text-[#6aab7e] transition-colors underline"
+            >
+              First time? Set up admin account
+            </button>
+          </div>
+        ) : (
           <Card className="bg-[#243028] border-[#3a4f44]">
             <CardHeader className="pb-3">
               <CardTitle className="text-white text-base">
@@ -146,19 +163,28 @@ export default function LoginPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {!showSetup ? (
+              {!showSetupForm ? (
                 <div className="text-center">
                   <p className="text-gray-400 text-sm mb-3">
                     Set up your organisation&apos;s admin account
                   </p>
-                  <Button
-                    variant="outline"
-                    className="border-[#4a7c59] text-[#6aab7e] hover:bg-[#4a7c59]/20"
-                    onClick={() => setShowSetup(true)}
-                    data-ocid="setup.open.button"
-                  >
-                    Create Admin Account
-                  </Button>
+                  <div className="flex gap-2 justify-center">
+                    <Button
+                      variant="outline"
+                      className="border-[#4a7c59] text-[#6aab7e] hover:bg-[#4a7c59]/20"
+                      onClick={() => setShowSetupForm(true)}
+                      data-ocid="setup.open_modal_button"
+                    >
+                      Create Admin Account
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="text-gray-500 hover:text-gray-300"
+                      onClick={() => setShowSetupCard(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <form onSubmit={handleSetup} className="space-y-3">
@@ -169,7 +195,7 @@ export default function LoginPage() {
                       onChange={(e) => setSetupName(e.target.value)}
                       placeholder="Your full name"
                       className="bg-[#1a2420] border-[#3a4f44] text-white placeholder:text-gray-500"
-                      data-ocid="setup.name.input"
+                      data-ocid="setup.input"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -179,7 +205,7 @@ export default function LoginPage() {
                       onChange={(e) => setSetupUser(e.target.value)}
                       placeholder="Choose a username"
                       className="bg-[#1a2420] border-[#3a4f44] text-white placeholder:text-gray-500"
-                      data-ocid="setup.username.input"
+                      data-ocid="setup.search_input"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -190,7 +216,7 @@ export default function LoginPage() {
                       onChange={(e) => setSetupPass(e.target.value)}
                       placeholder="Choose a password"
                       className="bg-[#1a2420] border-[#3a4f44] text-white placeholder:text-gray-500"
-                      data-ocid="setup.password.input"
+                      data-ocid="setup.textarea"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -200,7 +226,7 @@ export default function LoginPage() {
                       onChange={(e) => setSetupCode(e.target.value)}
                       placeholder="SWISH-SETUP-2026"
                       className="bg-[#1a2420] border-[#3a4f44] text-white placeholder:text-gray-500"
-                      data-ocid="setup.code.input"
+                      data-ocid="setup.secondary_input"
                     />
                   </div>
                   <div className="flex gap-2">
@@ -208,7 +234,8 @@ export default function LoginPage() {
                       type="button"
                       variant="outline"
                       className="flex-1 border-[#3a4f44] text-gray-400"
-                      onClick={() => setShowSetup(false)}
+                      onClick={() => setShowSetupForm(false)}
+                      data-ocid="setup.cancel_button"
                     >
                       Cancel
                     </Button>
@@ -216,7 +243,7 @@ export default function LoginPage() {
                       type="submit"
                       className="flex-1 bg-[#4a7c59] hover:bg-[#3d6849] text-white"
                       disabled={setupLoading}
-                      data-ocid="setup.submit.button"
+                      data-ocid="setup.submit_button"
                     >
                       {setupLoading ? "Creating..." : "Create Admin"}
                     </Button>

@@ -31,6 +31,7 @@ import {
   PlusCircle,
   Save,
   X,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -65,6 +66,13 @@ interface SectionObservation {
   images: string[];
 }
 
+export type PowerSupplyType = "3in3out" | "3in1out" | "1in1out" | "";
+
+export interface PowerSupplyData {
+  type: PowerSupplyType;
+  fields: Record<string, string>;
+}
+
 type ValidationErrors = Record<
   string,
   { answer?: boolean; remarks?: boolean; images?: boolean }
@@ -93,8 +101,314 @@ const STATUS_CONFIG: Record<Audit["status"], { label: string; cls: string }> = {
   },
 };
 
+// ── Power Supply field definitions ─────────────────────────────────────────
+
+const PS_TYPE_LABELS: Record<string, string> = {
+  "3in3out": "3 in 3 out",
+  "3in1out": "3 in 1 out",
+  "1in1out": "1 in 1 out",
+};
+
+// ── Power Supply table definitions ─────────────────────────────────────────
+
+interface PsSubColumn {
+  fields: ({ key: string; label: string } | null)[];
+}
+
+interface PsColumnGroup {
+  header: string;
+  subColumns: PsSubColumn[];
+}
+
+function getPsTableSchema(type: PowerSupplyType): PsColumnGroup[] {
+  if (type === "3in3out") {
+    return [
+      {
+        header: "Voltage",
+        subColumns: [
+          {
+            fields: [
+              { key: "v_rn", label: "RN" },
+              { key: "v_yn", label: "YN" },
+              { key: "v_bn", label: "BN" },
+              null,
+            ],
+          },
+          {
+            fields: [
+              { key: "v_ry", label: "RY" },
+              { key: "v_yb", label: "YB" },
+              { key: "v_br", label: "BR" },
+              null,
+            ],
+          },
+        ],
+      },
+      {
+        header: "Current",
+        subColumns: [
+          {
+            fields: [
+              { key: "c_r", label: "R" },
+              { key: "c_y", label: "Y" },
+              { key: "c_b", label: "B" },
+              { key: "c_n", label: "N" },
+            ],
+          },
+        ],
+      },
+      {
+        header: "Earthing",
+        subColumns: [
+          {
+            fields: [
+              { key: "e_re", label: "RE" },
+              { key: "e_ye", label: "YE" },
+              { key: "e_be", label: "BE" },
+              { key: "e_ne", label: "NE" },
+            ],
+          },
+        ],
+      },
+    ];
+  }
+  if (type === "3in1out") {
+    return [
+      {
+        header: "Voltage",
+        subColumns: [
+          {
+            fields: [
+              { key: "v_rn", label: "RN" },
+              { key: "v_yn", label: "YN" },
+              { key: "v_bn", label: "BN" },
+              null,
+            ],
+          },
+          {
+            fields: [
+              { key: "v_re", label: "RE" },
+              { key: "v_ye", label: "YE" },
+              { key: "v_be", label: "BE" },
+              { key: "v_ne", label: "NE" },
+            ],
+          },
+        ],
+      },
+      {
+        header: "Current",
+        subColumns: [
+          {
+            fields: [
+              { key: "c_r", label: "R" },
+              { key: "c_y", label: "Y" },
+              { key: "c_b", label: "B" },
+              { key: "c_n", label: "N" },
+            ],
+          },
+        ],
+      },
+      {
+        header: "Output",
+        subColumns: [
+          {
+            fields: [
+              { key: "o_pn", label: "PN" },
+              { key: "o_ne", label: "NE" },
+              { key: "o_p", label: "P" },
+              { key: "o_n", label: "N" },
+            ],
+          },
+        ],
+      },
+    ];
+  }
+  if (type === "1in1out") {
+    return [
+      {
+        header: "Input",
+        subColumns: [
+          {
+            fields: [
+              { key: "i_pn", label: "PN" },
+              { key: "i_ne", label: "NE" },
+              { key: "i_pe", label: "PE" },
+            ],
+          },
+          {
+            fields: [
+              { key: "i_p", label: "P" },
+              { key: "i_n", label: "N" },
+              null,
+            ],
+          },
+        ],
+      },
+      {
+        header: "Output",
+        subColumns: [
+          {
+            fields: [
+              { key: "o_pn", label: "PN" },
+              { key: "o_ne", label: "NE" },
+              { key: "o_pe", label: "PE" },
+            ],
+          },
+          {
+            fields: [
+              { key: "o_p", label: "P" },
+              { key: "o_n", label: "N" },
+              null,
+            ],
+          },
+        ],
+      },
+    ];
+  }
+  return [];
+}
+
+// ── PowerSupplyPanel component ──────────────────────────────────────────────
+
+function PowerSupplyPanel({
+  data,
+  canEdit,
+  onChange,
+}: {
+  data: PowerSupplyData;
+  canEdit: boolean;
+  onChange: (next: PowerSupplyData) => void;
+}) {
+  const schema = getPsTableSchema(data.type);
+
+  const handleTypeChange = (val: string) => {
+    onChange({ type: val as PowerSupplyType, fields: {} });
+  };
+
+  const handleFieldChange = (key: string, val: string) => {
+    onChange({ ...data, fields: { ...data.fields, [key]: val } });
+  };
+
+  const rowCount = schema.reduce(
+    (max, g) => Math.max(max, ...g.subColumns.map((sc) => sc.fields.length)),
+    0,
+  );
+  const rowIndices = Array.from({ length: rowCount }, (_, i) => i);
+
+  return (
+    <div className="rounded-lg border border-gray-300 bg-white mt-4 overflow-hidden shadow-sm">
+      {/* Panel header */}
+      <div className="bg-gray-100 border-b border-gray-200 px-4 py-2 flex items-center gap-2">
+        <Zap className="h-4 w-4 text-gray-500 shrink-0" />
+        <span className="text-sm font-semibold text-gray-700">
+          Power Supply Details
+        </span>
+        <span className="ml-2 text-xs text-gray-400">(optional)</span>
+      </div>
+
+      <div className="px-4 py-3 space-y-4">
+        {/* Type selector */}
+        <div className="flex items-center gap-3">
+          <Label className="text-xs text-gray-500 shrink-0 w-24">Type</Label>
+          <Select
+            value={data.type || "__none"}
+            onValueChange={(v) =>
+              canEdit && handleTypeChange(v === "__none" ? "" : v)
+            }
+            disabled={!canEdit}
+          >
+            <SelectTrigger className="bg-white border-gray-300 text-gray-800 max-w-[200px] text-sm">
+              <SelectValue placeholder="— Select type —" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none" className="text-gray-400">
+                — None —
+              </SelectItem>
+              {Object.entries(PS_TYPE_LABELS).map(([k, v]) => (
+                <SelectItem key={k} value={k}>
+                  {v}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Table */}
+        {data.type && schema.length > 0 && (
+          <div className="overflow-x-auto">
+            <p className="text-xs font-semibold text-gray-600 mb-2">
+              {PS_TYPE_LABELS[data.type]} - Details
+            </p>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  {schema.map((group) => (
+                    <th
+                      key={group.header}
+                      colSpan={group.subColumns.length}
+                      className="border border-gray-300 bg-gray-50 text-center text-xs font-semibold text-gray-700 px-2 py-1.5"
+                    >
+                      {group.header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rowIndices.map((rowIdx) => (
+                  <tr
+                    key={`row-${rowIdx}`}
+                    className="border-b border-gray-200"
+                  >
+                    {schema.map((group) =>
+                      group.subColumns.map((subCol, scIdx) => {
+                        const cell = subCol.fields[rowIdx] ?? null;
+                        return (
+                          <td
+                            key={`${group.header}-${scIdx}-${rowIdx}`}
+                            className="border border-gray-200 p-1.5"
+                          >
+                            {cell ? (
+                              <div className="flex items-center gap-0 rounded overflow-hidden border border-gray-300 bg-white">
+                                <span className="px-2 py-1 text-xs font-semibold text-gray-600 bg-gray-100 border-r border-gray-300 shrink-0 whitespace-nowrap">
+                                  {cell.label}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={data.fields[cell.key] ?? ""}
+                                  onChange={(e) =>
+                                    canEdit &&
+                                    handleFieldChange(cell.key, e.target.value)
+                                  }
+                                  disabled={!canEdit}
+                                  className="flex-1 min-w-0 px-2 py-1 text-sm text-gray-800 bg-white outline-none disabled:bg-gray-50"
+                                />
+                              </div>
+                            ) : (
+                              <div className="h-8" />
+                            )}
+                          </td>
+                        );
+                      }),
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
 function emptyAnswer(): QuestionAnswer {
   return { answer: "", remarks: "", images: [] };
+}
+
+function emptyPs(): PowerSupplyData {
+  return { type: "", fields: {} };
 }
 
 function genId(): string {
@@ -104,9 +418,11 @@ function genId(): string {
 function parseAnswers(json: string): {
   answers: AuditAnswers;
   observations: Record<string, SectionObservation[]>;
+  powerSupply: Record<string, PowerSupplyData>;
 } {
   const answers: AuditAnswers = {};
   const observations: Record<string, SectionObservation[]> = {};
+  const powerSupply: Record<string, PowerSupplyData> = {};
   try {
     const parsed = JSON.parse(json);
     if (typeof parsed === "object" && parsed !== null) {
@@ -116,6 +432,12 @@ function parseAnswers(json: string): {
           observations[secId] = Array.isArray(v)
             ? (v as SectionObservation[])
             : [];
+        } else if (k.startsWith("__ps_")) {
+          const secId = k.slice(5);
+          powerSupply[secId] =
+            typeof v === "object" && v !== null
+              ? (v as PowerSupplyData)
+              : emptyPs();
         } else if (typeof v === "object" && v !== null && "answer" in v) {
           answers[k] = v as QuestionAnswer;
         } else if (typeof v === "string") {
@@ -128,8 +450,10 @@ function parseAnswers(json: string): {
   } catch {
     /* noop */
   }
-  return { answers, observations };
+  return { answers, observations, powerSupply };
 }
+
+// ── Main page ─────────────────────────────────────────────────────────────
 
 export default function QuestionnairePage({
   session,
@@ -163,7 +487,7 @@ export default function QuestionnairePage({
             .getBySite(site.id)
             .sort((a, b) => b.lastSavedAt - a.lastSavedAt)[0]
         : null;
-    if (!src) return { answers: {}, observations: {} };
+    if (!src) return { answers: {}, observations: {}, powerSupply: {} };
     return parseAnswers(src.answersJson);
   })();
 
@@ -181,10 +505,14 @@ export default function QuestionnairePage({
   const [sectionObservations, setSectionObservations] = useState<
     Record<string, SectionObservation[]>
   >(initParsed.observations);
+  const [sectionPowerSupply, setSectionPowerSupply] = useState<
+    Record<string, PowerSupplyData>
+  >(initParsed.powerSupply);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(sections.map((s) => s.id)),
   );
   const [errors, setErrors] = useState<ValidationErrors>({});
+  const [photosExpanded, setPhotosExpanded] = useState(true);
   const [obsErrors, setObsErrors] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -214,6 +542,7 @@ export default function QuestionnairePage({
     (
       currentAnswers: AuditAnswers,
       currentObs: Record<string, SectionObservation[]>,
+      currentPs: Record<string, PowerSupplyData>,
     ) => {
       if (!audit) return;
       setSaving(true);
@@ -224,6 +553,11 @@ export default function QuestionnairePage({
             `__obs_${secId}`,
             rows,
           ]),
+        ),
+        ...Object.fromEntries(
+          Object.entries(currentPs)
+            .filter(([, ps]) => ps.type)
+            .map(([secId, ps]) => [`__ps_${secId}`, ps]),
         ),
       };
       auditStore.update(audit.id, {
@@ -261,7 +595,7 @@ export default function QuestionnairePage({
     });
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(
-      () => saveAnswers(next, sectionObservations),
+      () => saveAnswers(next, sectionObservations, sectionPowerSupply),
       5000,
     );
   };
@@ -274,7 +608,7 @@ export default function QuestionnairePage({
 
   const handleManualSave = () => {
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    saveAnswers(answers, sectionObservations);
+    saveAnswers(answers, sectionObservations, sectionPowerSupply);
     toast.success("Report saved");
   };
 
@@ -301,7 +635,7 @@ export default function QuestionnairePage({
       setAnswers(next);
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = setTimeout(
-        () => saveAnswers(next, sectionObservations),
+        () => saveAnswers(next, sectionObservations, sectionPowerSupply),
         5000,
       );
     });
@@ -316,6 +650,23 @@ export default function QuestionnairePage({
     );
   };
 
+  // ── Power Supply helpers ─────────────────────────────────────────────────
+
+  const getPsData = (secId: string): PowerSupplyData =>
+    sectionPowerSupply[secId] ?? emptyPs();
+
+  const updatePsData = (secId: string, next: PowerSupplyData) => {
+    setSectionPowerSupply((prev) => {
+      const updated = { ...prev, [secId]: next };
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(
+        () => saveAnswers(answers, sectionObservations, updated),
+        5000,
+      );
+      return updated;
+    });
+  };
+
   // ── Observation helpers ──────────────────────────────────────────────────
 
   const getObservations = (secId: string): SectionObservation[] =>
@@ -326,7 +677,7 @@ export default function QuestionnairePage({
       const updated = { ...prev, [secId]: next };
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = setTimeout(
-        () => saveAnswers(answers, updated),
+        () => saveAnswers(answers, updated, sectionPowerSupply),
         5000,
       );
       return updated;
@@ -439,7 +790,6 @@ export default function QuestionnairePage({
       }
     }
 
-    // Check observation images — all observations require at least one image
     const newObsErrors = new Set<string>();
     for (const sec of sections) {
       const obs = sectionObservations[sec.id] ?? [];
@@ -478,7 +828,7 @@ export default function QuestionnairePage({
     }
 
     setSubmitting(true);
-    saveAnswers(answers, sectionObservations);
+    saveAnswers(answers, sectionObservations, sectionPowerSupply);
     let newStatus: Audit["status"] = "Submitted";
     if (role === "reviewer") newStatus = "Reviewed";
     auditStore.update(audit.id, { status: newStatus, lastSavedAt: Date.now() });
@@ -664,6 +1014,7 @@ export default function QuestionnairePage({
             const hasError = qs.some((q) => errors[q.id]);
             const observations = getObservations(sec.id);
             const hasObsError = observations.some((o) => obsErrors.has(o.id));
+            const psData = getPsData(sec.id);
             return (
               <div key={sec.id} className="mb-3">
                 <button
@@ -868,6 +1219,13 @@ export default function QuestionnairePage({
                       );
                     })}
 
+                    {/* ── Power Supply Details Panel ── */}
+                    <PowerSupplyPanel
+                      data={psData}
+                      canEdit={canEdit}
+                      onChange={(next) => updatePsData(sec.id, next)}
+                    />
+
                     {/* ── Critical Observations & Recommendations Panel ── */}
                     <div className="rounded-lg border border-gray-300 bg-white mt-4 overflow-hidden">
                       <div className="bg-gray-100 border-b border-gray-200 px-4 py-2.5 flex items-center gap-2">
@@ -909,7 +1267,6 @@ export default function QuestionnairePage({
                                   : "border-gray-200 bg-gray-50"
                               }`}
                             >
-                              {/* Row header */}
                               <div className="bg-gray-200 px-3 py-1.5 flex items-center justify-between">
                                 <span className="text-xs font-bold text-gray-600">
                                   #{oi + 1}
@@ -942,7 +1299,6 @@ export default function QuestionnairePage({
                                 )}
                               </div>
 
-                              {/* Remarks + Recommendations */}
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 px-3 pt-3">
                                 <div>
                                   <Label className="text-xs font-medium text-gray-600 mb-1.5 block">
@@ -987,7 +1343,6 @@ export default function QuestionnairePage({
                                 </div>
                               </div>
 
-                              {/* Images */}
                               <div className="px-3 pb-3 pt-2">
                                 <Label
                                   className={`text-xs font-medium mb-1.5 block ${
@@ -1097,6 +1452,105 @@ export default function QuestionnairePage({
               </div>
             );
           })}
+
+          {/* ── Photographs Section ── */}
+          <div className="rounded-lg overflow-hidden border border-[#2a3a2a] shadow-sm">
+            <button
+              type="button"
+              onClick={() => setPhotosExpanded((p) => !p)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-[#6b7c3a] hover:bg-[#5a6b30] text-white font-semibold text-sm transition-colors"
+              data-ocid="questionnaire.photos_panel"
+            >
+              <span>{sections.length + 1}. Photographs</span>
+              <svg
+                aria-label="Toggle photographs section"
+                role="img"
+                className={`h-4 w-4 transition-transform ${photosExpanded ? "rotate-180" : ""}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </button>
+            {photosExpanded && (
+              <div className="bg-[#0f1f17] p-4 space-y-6">
+                {(() => {
+                  const grouped = sections
+                    .map((sec) => {
+                      const qs = questionsBySec[sec.id] ?? [];
+                      const photos: {
+                        src: string;
+                        caption: string;
+                        qLabel: string;
+                      }[] = [];
+                      for (const q of qs) {
+                        const imgs = answers[q.id]?.images ?? [];
+                        for (const src of imgs) {
+                          photos.push({
+                            src,
+                            caption:
+                              answers[q.id]?.remarks || "No remarks available",
+                            qLabel: q.label,
+                          });
+                        }
+                      }
+                      return { sec, photos };
+                    })
+                    .filter((g) => g.photos.length > 0);
+
+                  if (grouped.length === 0) {
+                    return (
+                      <p className="text-center text-gray-400 py-8 text-sm">
+                        No photographs uploaded yet.
+                      </p>
+                    );
+                  }
+
+                  return grouped.map(({ sec, photos }) => (
+                    <div key={sec.id}>
+                      <h4 className="text-[#a3b865] font-bold text-sm mb-3 border-b border-[#2a3a2a] pb-1">
+                        {sec.name}
+                      </h4>
+                      <div className="flex flex-wrap gap-4">
+                        {photos.map((ph, idx) => (
+                          <div
+                            key={`${ph.src}-${idx}`}
+                            className="border border-[#2a3a2a] rounded-lg overflow-hidden bg-[#0d1912] w-44 flex-shrink-0"
+                          >
+                            <img
+                              src={ph.src}
+                              alt={ph.caption}
+                              className="w-full h-36 object-cover"
+                            />
+                            <div className="p-2">
+                              <p
+                                className="text-xs text-gray-300 font-medium truncate"
+                                title={ph.qLabel}
+                              >
+                                {ph.qLabel}
+                              </p>
+                              <p
+                                className="text-xs text-gray-500 mt-0.5 line-clamp-2"
+                                title={ph.caption}
+                              >
+                                {ph.caption}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
+          </div>
         </main>
 
         {/* Fixed bottom bar */}

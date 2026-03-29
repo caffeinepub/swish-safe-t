@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
+  Loader2,
   Pencil,
   Plus,
   Shield,
@@ -36,14 +37,19 @@ import {
   ToggleLeft,
   Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
 import Sidebar from "../components/Sidebar";
+import { useActor } from "../hooks/useActor";
+import {
+  listUsersFromBackend,
+  upsertUserToBackend,
+} from "../lib/backendUserService";
 import { hashPassword } from "../lib/crypto";
 import type { Session } from "../lib/session";
 import type { StoredUser, UserRole } from "../lib/userStore";
-import { addUser, getUsers, isTempAdmin, updateUser } from "../lib/userStore";
+import { isTempAdmin } from "../lib/userStore";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -71,7 +77,9 @@ interface UserForm {
 }
 
 export default function AdminPage({ session, onNavigate }: Props) {
-  const [users, setUsers] = useState<StoredUser[]>(() => getUsers());
+  const { actor, isFetching } = useActor();
+  const [users, setUsers] = useState<StoredUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<StoredUser | null>(null);
   const [form, setForm] = useState<UserForm>({
@@ -84,7 +92,27 @@ export default function AdminPage({ session, onNavigate }: Props) {
   const [saving, setSaving] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState<StoredUser | null>(null);
 
-  const reload = () => setUsers(getUsers());
+  const reload = async (currentActor: typeof actor) => {
+    if (!currentActor) return;
+    setLoadingUsers(true);
+    try {
+      const list = await listUsersFromBackend(currentActor);
+      setUsers(list);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (actor && !isFetching) {
+      setLoadingUsers(true);
+      listUsersFromBackend(actor)
+        .then(setUsers)
+        .catch(console.error)
+        .finally(() => setLoadingUsers(false));
+    }
+  }, [actor, isFetching]);
+
   const openAdd = () => {
     setEditingUser(null);
     setForm({
@@ -117,8 +145,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
       toast.error("Password is required for new users");
       return;
     }
-    const allUsers = getUsers();
-    const duplicate = allUsers.find(
+    const duplicate = users.find(
       (u) =>
         u.username.toLowerCase() === form.username.toLowerCase() &&
         u.id !== editingUser?.id,
@@ -127,24 +154,31 @@ export default function AdminPage({ session, onNavigate }: Props) {
       toast.error("Username already exists");
       return;
     }
+    if (!actor) {
+      toast.error("Not connected to backend. Please wait.");
+      return;
+    }
     setSaving(true);
     try {
       if (editingUser) {
-        const updates: Partial<StoredUser> = {
+        const updated: StoredUser = {
+          ...editingUser,
           fullName: form.fullName.trim(),
           role: form.role,
           isEnabled: form.isEnabled,
         };
-        if (form.password)
-          updates.passwordHash = await hashPassword(
+        if (form.password) {
+          updated.passwordHash = await hashPassword(
             form.username,
             form.password,
           );
-        updateUser(editingUser.id, updates);
+        }
+        await upsertUserToBackend(actor, updated);
         toast.success("User updated");
       } else {
         const hash = await hashPassword(form.username.trim(), form.password);
-        addUser({
+        const newUser: StoredUser = {
+          id: form.username.trim(),
           username: form.username.trim(),
           passwordHash: hash,
           fullName: form.fullName.trim(),
@@ -152,17 +186,21 @@ export default function AdminPage({ session, onNavigate }: Props) {
           originalRole: form.role,
           elevatedUntil: null,
           isEnabled: form.isEnabled,
-        });
+        };
+        await upsertUserToBackend(actor, newUser);
         toast.success("User added successfully");
       }
       setShowForm(false);
-      reload();
+      await reload(actor);
+    } catch (err) {
+      toast.error("Failed to save user. Please try again.");
+      console.error(err);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleToggleEnabled = (u: StoredUser) => {
+  const handleToggleEnabled = async (u: StoredUser) => {
     if (u.id === session.userId && u.isEnabled) {
       toast.error("You cannot disable your own account");
       return;
@@ -170,22 +208,27 @@ export default function AdminPage({ session, onNavigate }: Props) {
     if (u.isEnabled) {
       setConfirmDisable(u);
     } else {
-      updateUser(u.id, { isEnabled: true });
+      if (!actor) return;
+      await upsertUserToBackend(actor, { ...u, isEnabled: true });
       toast.success(`${u.fullName} enabled`);
-      reload();
+      await reload(actor);
     }
   };
 
-  const handleGrantTempAdmin = (u: StoredUser) => {
-    updateUser(u.id, {
+  const handleGrantTempAdmin = async (u: StoredUser) => {
+    if (!actor) return;
+    await upsertUserToBackend(actor, {
+      ...u,
       role: "admin",
       elevatedUntil: Date.now() + 24 * 60 * 60 * 1000,
     });
     toast.success(
       `${u.fullName} has been granted Temporary Admin for 24 hours`,
     );
-    reload();
+    await reload(actor);
   };
+
+  const isActorReady = !!actor && !isFetching;
 
   return (
     <div className="flex min-h-screen bg-[#111c18]">
@@ -205,21 +248,34 @@ export default function AdminPage({ session, onNavigate }: Props) {
               <Button
                 size="sm"
                 onClick={openAdd}
+                disabled={!isActorReady}
                 className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
-                data-ocid="admin.add_user.button"
+                data-ocid="admin.primary_button"
               >
                 <Plus className="h-4 w-4" />
                 Add User
               </Button>
             </CardHeader>
             <CardContent>
-              {users.length === 0 ? (
+              {loadingUsers ? (
+                <div
+                  className="flex items-center justify-center py-12"
+                  data-ocid="admin.loading_state"
+                >
+                  <Loader2 className="h-6 w-6 animate-spin text-[#6aab7e] mr-2" />
+                  <span className="text-gray-400 text-sm">
+                    Loading users...
+                  </span>
+                </div>
+              ) : users.length === 0 ? (
                 <div
                   className="text-center py-12"
                   data-ocid="admin.empty_state"
                 >
                   <Users className="h-8 w-8 mx-auto mb-3 text-gray-600" />
-                  <p className="text-gray-400 text-sm">No users yet.</p>
+                  <p className="text-gray-400 text-sm">
+                    No users yet. Add the first user above.
+                  </p>
                 </div>
               ) : (
                 <div className="divide-y divide-[#1e2e26]">
@@ -262,7 +318,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
                             size="sm"
                             className="gap-1 text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
                             onClick={() => handleGrantTempAdmin(u)}
-                            data-ocid={`admin.temp_admin.button.${idx + 1}`}
+                            data-ocid={`admin.toggle.button.${idx + 1}`}
                             title="Grant Temporary Admin (24hrs)"
                           >
                             <ShieldCheck className="h-3.5 w-3.5" />
@@ -274,7 +330,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
                           size="sm"
                           className={`gap-1 text-xs ${u.isEnabled ? "text-gray-400 hover:text-red-400" : "text-green-400 hover:text-green-300"}`}
                           onClick={() => handleToggleEnabled(u)}
-                          data-ocid={`admin.toggle.button.${idx + 1}`}
+                          data-ocid={`admin.secondary_button.${idx + 1}`}
                         >
                           <ToggleLeft className="h-3.5 w-3.5" />
                           <span className="hidden sm:inline">
@@ -286,7 +342,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
                           size="icon"
                           className="h-8 w-8 text-gray-400 hover:text-white"
                           onClick={() => openEdit(u)}
-                          data-ocid={`admin.edit.button.${idx + 1}`}
+                          data-ocid={`admin.edit_button.${idx + 1}`}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -345,7 +401,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent
           className="bg-[#1a2420] border-[#3a4f44]"
-          data-ocid="admin.user.dialog"
+          data-ocid="admin.dialog"
         >
           <DialogHeader>
             <DialogTitle className="text-white">
@@ -356,7 +412,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
             <div className="space-y-1.5">
               <Label className="text-gray-300">Full Name</Label>
               <Input
-                data-ocid="admin.user.name.input"
+                data-ocid="admin.input"
                 value={form.fullName}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, fullName: e.target.value }))
@@ -368,7 +424,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
             <div className="space-y-1.5">
               <Label className="text-gray-300">Username</Label>
               <Input
-                data-ocid="admin.user.username.input"
+                data-ocid="admin.search_input"
                 value={form.username}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, username: e.target.value }))
@@ -386,7 +442,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
               </Label>
               <Input
                 type="password"
-                data-ocid="admin.user.password.input"
+                data-ocid="admin.textarea"
                 value={form.password}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, password: e.target.value }))
@@ -406,7 +462,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
                 }
               >
                 <SelectTrigger
-                  data-ocid="admin.user.role.select"
+                  data-ocid="admin.select"
                   className="bg-[#111c18] border-[#3a4f44] text-white"
                 >
                   <SelectValue />
@@ -430,7 +486,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
               </Label>
               <Switch
                 id="user-enabled"
-                data-ocid="admin.user.enabled.switch"
+                data-ocid="admin.switch"
                 checked={form.isEnabled}
                 onCheckedChange={(v) =>
                   setForm((p) => ({ ...p, isEnabled: v }))
@@ -443,6 +499,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
               variant="outline"
               onClick={() => setShowForm(false)}
               className="border-[#3a4f44] text-gray-300"
+              data-ocid="admin.cancel_button"
             >
               Cancel
             </Button>
@@ -450,9 +507,17 @@ export default function AdminPage({ session, onNavigate }: Props) {
               onClick={handleSave}
               disabled={saving}
               className="bg-[#4a7c59] hover:bg-[#3d6849] text-white"
-              data-ocid="admin.user.save.button"
+              data-ocid="admin.submit_button"
             >
-              {saving ? "Saving..." : editingUser ? "Update User" : "Add User"}
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" /> Saving...
+                </>
+              ) : editingUser ? (
+                "Update User"
+              ) : (
+                "Add User"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -478,12 +543,16 @@ export default function AdminPage({ session, onNavigate }: Props) {
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-700 hover:bg-red-800 text-white"
-              onClick={() => {
-                if (confirmDisable) {
-                  updateUser(confirmDisable.id, { isEnabled: false });
+              data-ocid="admin.confirm_button"
+              onClick={async () => {
+                if (confirmDisable && actor) {
+                  await upsertUserToBackend(actor, {
+                    ...confirmDisable,
+                    isEnabled: false,
+                  });
                   toast.success(`${confirmDisable.fullName} disabled`);
                   setConfirmDisable(null);
-                  reload();
+                  await reload(actor);
                 }
               }}
             >

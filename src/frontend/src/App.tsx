@@ -20,23 +20,10 @@ export type NavPage = {
 };
 
 function AppRouter() {
-  const { session, isLoading } = useAuth();
+  const { session } = useAuth();
   const [page, setPage] = useState<NavPage>({ name: "dashboard" });
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#0d1912] flex items-center justify-center">
-        <div className="text-center">
-          <div className="h-10 w-10 rounded-full border-2 border-[#4a7c59] border-t-[#8aad3a] animate-spin mx-auto mb-3" />
-          <div className="text-sm font-semibold text-[#8aad3a]">
-            SWiSH SAFE-T
-          </div>
-          <div className="text-xs text-gray-600 mt-1">Loading...</div>
-        </div>
-      </div>
-    );
-  }
-
+  // Show login screen IMMEDIATELY — no spinner, no waiting for backend
   if (!session) return <LoginPage />;
 
   const navigate = (p: NavPage) => setPage(p);
