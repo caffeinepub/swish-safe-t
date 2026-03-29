@@ -26,6 +26,7 @@ import {
   ImageIcon,
   Loader2,
   Save,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -33,6 +34,8 @@ import type { NavPage } from "../App";
 import Sidebar from "../components/Sidebar";
 import {
   type Audit,
+  type AuditAnswers,
+  type QuestionAnswer,
   type TemplateQuestion,
   type TemplateSection,
   auditStore,
@@ -51,7 +54,10 @@ interface Props {
   onNavigate: (page: NavPage) => void;
 }
 
-type Answers = Record<string, string | string[]>;
+type ValidationErrors = Record<
+  string,
+  { answer?: boolean; remarks?: boolean; images?: boolean }
+>;
 
 const STATUS_CONFIG: Record<Audit["status"], { label: string; cls: string }> = {
   Draft: {
@@ -76,6 +82,33 @@ const STATUS_CONFIG: Record<Audit["status"], { label: string; cls: string }> = {
   },
 };
 
+function emptyAnswer(): QuestionAnswer {
+  return { answer: "", remarks: "", images: [] };
+}
+
+function parseAnswers(json: string): AuditAnswers {
+  try {
+    const parsed = JSON.parse(json);
+    if (typeof parsed === "object" && parsed !== null) {
+      // Migrate old flat format: { [qId]: string | string[] }
+      const result: AuditAnswers = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === "object" && v !== null && "answer" in v) {
+          result[k] = v as QuestionAnswer;
+        } else if (typeof v === "string") {
+          result[k] = { answer: v, remarks: "", images: [] };
+        } else if (Array.isArray(v)) {
+          result[k] = { answer: "", remarks: "", images: v as string[] };
+        }
+      }
+      return result;
+    }
+  } catch {
+    /* noop */
+  }
+  return {};
+}
+
 export default function QuestionnairePage({
   session,
   siteId,
@@ -93,7 +126,11 @@ export default function QuestionnairePage({
     : [];
   const questionsBySec: Record<string, TemplateQuestion[]> = {};
   for (const sec of sections) {
-    questionsBySec[sec.id] = templateQuestionStore.getBySection(sec.id);
+    questionsBySec[sec.id] = templateQuestionStore
+      .getBySection(sec.id)
+      .filter(
+        (q) => q.questionType === "radio" || q.questionType === "dropdown",
+      );
   }
 
   const [audit, setAudit] = useState<Audit | null>(() => {
@@ -106,7 +143,7 @@ export default function QuestionnairePage({
     return existing ?? null;
   });
 
-  const [answers, setAnswers] = useState<Answers>(() => {
+  const [answers, setAnswers] = useState<AuditAnswers>(() => {
     const src = auditId
       ? auditStore.getById(auditId)
       : site
@@ -115,17 +152,13 @@ export default function QuestionnairePage({
             .sort((a, b) => b.lastSavedAt - a.lastSavedAt)[0]
         : null;
     if (!src) return {};
-    try {
-      return JSON.parse(src.answersJson);
-    } catch {
-      return {};
-    }
+    return parseAnswers(src.answersJson);
   });
 
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(sections.map((s) => s.id)),
   );
-  const [errors, setErrors] = useState<Set<string>>(new Set());
+  const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showSendBackDialog, setShowSendBackDialog] = useState(false);
@@ -152,7 +185,7 @@ export default function QuestionnairePage({
   }, [audit, site, template, role, session]);
 
   const saveAnswers = useCallback(
-    (currentAnswers: Answers) => {
+    (currentAnswers: AuditAnswers) => {
       if (!audit) return;
       setSaving(true);
       auditStore.update(audit.id, {
@@ -164,12 +197,30 @@ export default function QuestionnairePage({
     [audit],
   );
 
-  const setAnswer = (qId: string, value: string | string[]) => {
-    const next = { ...answers, [qId]: value };
+  const getOrEmpty = (qId: string): QuestionAnswer =>
+    answers[qId] ?? emptyAnswer();
+
+  const updateAnswer = (
+    qId: string,
+    field: keyof QuestionAnswer,
+    value: string | string[],
+  ) => {
+    const current = getOrEmpty(qId);
+    const next: AuditAnswers = {
+      ...answers,
+      [qId]: { ...current, [field]: value },
+    };
     setAnswers(next);
     setErrors((prev) => {
-      const n = new Set(prev);
-      n.delete(qId);
+      const n = { ...prev };
+      if (n[qId]) {
+        const updated = { ...n[qId], [field]: false };
+        if (!updated.answer && !updated.remarks && !updated.images) {
+          delete n[qId];
+        } else {
+          n[qId] = updated;
+        }
+      }
       return n;
     });
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -190,7 +241,7 @@ export default function QuestionnairePage({
 
   const handleFileUpload = (qId: string, files: FileList | null) => {
     if (!files || !files.length) return;
-    const existing = (answers[qId] as string[] | undefined) ?? [];
+    const existing = getOrEmpty(qId).images;
     const readers: Promise<string>[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -203,50 +254,78 @@ export default function QuestionnairePage({
       );
     }
     Promise.all(readers).then((bases) => {
-      const next = { ...answers, [qId]: [...existing, ...bases] };
+      const newImages = [...existing, ...bases];
+      const next: AuditAnswers = {
+        ...answers,
+        [qId]: { ...getOrEmpty(qId), images: newImages },
+      };
       setAnswers(next);
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = setTimeout(() => saveAnswers(next), 5000);
     });
   };
 
+  const removeImage = (qId: string, idx: number) => {
+    const current = getOrEmpty(qId);
+    const newImages = current.images.filter((_, i) => i !== idx);
+    updateAnswer(qId, "images", newImages);
+  };
+
   const validateAndSubmit = () => {
     if (!audit || !template) return;
-    const newErrors = new Set<string>();
+    const newErrors: ValidationErrors = {};
     for (const sec of sections) {
       const qs = questionsBySec[sec.id] ?? [];
       for (const q of qs) {
-        const ans = answers[q.id];
-        if (q.questionType === "imageUpload") {
-          if (q.isMandatoryPhoto && (!ans || (ans as string[]).length === 0)) {
-            newErrors.add(q.id);
-          }
-        } else {
-          if (!ans || (typeof ans === "string" && !ans.trim())) {
-            newErrors.add(q.id);
-          }
+        const ans = getOrEmpty(q.id);
+        const qErr: { answer?: boolean; remarks?: boolean; images?: boolean } =
+          {};
+
+        // Check answer
+        if (!ans.answer || !ans.answer.trim()) {
+          qErr.answer = true;
+        }
+        // Check remarks — always required
+        if (!ans.remarks || !ans.remarks.trim()) {
+          qErr.remarks = true;
+        }
+        // Check images — only if imageUploadMandatory
+        if (
+          q.enableImageUpload &&
+          q.imageUploadMandatory &&
+          (!ans.images || ans.images.length === 0)
+        ) {
+          qErr.images = true;
+        }
+
+        if (qErr.answer || qErr.remarks || qErr.images) {
+          newErrors[q.id] = qErr;
         }
       }
     }
-    if (newErrors.size > 0) {
+
+    if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      // Expand sections with errors and scroll to first
-      const firstErrorId = [...newErrors][0];
+      // Expand sections with errors
       for (const sec of sections) {
         const qs = questionsBySec[sec.id] ?? [];
-        if (qs.some((q) => newErrors.has(q.id))) {
+        if (qs.some((q) => newErrors[q.id])) {
           setExpandedSections((prev) => new Set([...prev, sec.id]));
         }
       }
+      // Scroll to first error
+      const firstErrorId = Object.keys(newErrors)[0];
       setTimeout(() => {
         const el = questionRefs.current[firstErrorId];
         if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 100);
+      const errorCount = Object.keys(newErrors).length;
       toast.error(
-        "Please fill all required fields and upload mandatory photos",
+        `${errorCount} question${errorCount > 1 ? "s" : ""} need attention — check highlighted fields`,
       );
       return;
     }
+
     setSubmitting(true);
     saveAnswers(answers);
     let newStatus: Audit["status"] = "Submitted";
@@ -349,7 +428,8 @@ export default function QuestionnairePage({
               No questionnaire template assigned to this site.
             </p>
             <p className="text-gray-600 text-sm text-center">
-              Please assign a template in the site settings (Clients & Sites).
+              Please assign a template in the site settings (Clients &amp;
+              Sites).
             </p>
             {(role === "admin" || role === "manager") && (
               <Button
@@ -385,6 +465,7 @@ export default function QuestionnairePage({
         <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 shrink-0">
           <div className="flex items-center gap-3">
             <Button
+              data-ocid="questionnaire.link"
               variant="ghost"
               size="sm"
               onClick={() => onNavigate({ name: "task-list" })}
@@ -430,13 +511,13 @@ export default function QuestionnairePage({
           {sections.map((sec, si) => {
             const qs = questionsBySec[sec.id] ?? [];
             const isExpanded = expandedSections.has(sec.id);
-            const hasError = qs.some((q) => errors.has(q.id));
+            const hasError = qs.some((q) => errors[q.id]);
             return (
               <div key={sec.id} className="mb-3">
                 <button
                   type="button"
                   className={`w-full flex items-center justify-between px-5 py-3 rounded-t-lg font-semibold text-white text-base ${
-                    hasError ? "bg-red-600" : "bg-[#8aad3a]"
+                    hasError ? "bg-red-700" : "bg-[#6b7c3a]"
                   }`}
                   onClick={() =>
                     setExpandedSections((prev) => {
@@ -457,137 +538,182 @@ export default function QuestionnairePage({
                   )}
                 </button>
                 {isExpanded && (
-                  <div className="bg-[#1a2420] border border-[#1e2e26] border-t-0 rounded-b-lg px-5 py-4 space-y-5">
-                    {qs.map((q) => {
-                      const hasErr = errors.has(q.id);
+                  <div className="bg-[#1a2420] border border-[#1e2e26] border-t-0 rounded-b-lg px-4 py-4 space-y-4">
+                    {qs.map((q, qi) => {
+                      const qErr = errors[q.id] ?? {};
+                      const hasQErr =
+                        qErr.answer || qErr.remarks || qErr.images;
+                      const ans = getOrEmpty(q.id);
                       return (
                         <div
                           key={q.id}
                           ref={(el) => {
                             questionRefs.current[q.id] = el;
                           }}
-                          className={`rounded-lg border p-4 ${hasErr ? "border-red-600 bg-red-900/10" : "border-[#2a3d33] bg-[#151f1a]"}`}
+                          data-ocid={`questionnaire.item.${qi + 1}`}
+                          className={`rounded-lg border p-4 space-y-4 transition-colors ${
+                            hasQErr
+                              ? "border-red-600 bg-red-900/10"
+                              : "border-[#2a3d33] bg-[#151f1a]"
+                          }`}
                         >
-                          <p className="block text-sm font-medium text-white mb-3">
+                          {/* Question number + label */}
+                          <p className="text-sm font-semibold text-white">
+                            <span className="text-[#8aad3a] mr-2">
+                              Q{qi + 1}.
+                            </span>
                             {q.label}
-                            {hasErr && (
-                              <span className="text-red-400 ml-1 text-xs">
-                                * Required
-                              </span>
-                            )}
                           </p>
 
-                          {q.questionType === "radio" && (
-                            <RadioGroup
-                              value={(answers[q.id] as string) ?? ""}
-                              onValueChange={(v) =>
-                                canEdit && setAnswer(q.id, v)
-                              }
-                              className="flex flex-wrap gap-4"
-                              disabled={!canEdit}
-                            >
-                              {q.options.map((opt) => (
-                                <div
-                                  key={opt}
-                                  className="flex items-center gap-2"
-                                >
-                                  <RadioGroupItem
-                                    value={opt}
-                                    id={`${q.id}_${opt}`}
-                                    className="border-[#4a7c59] text-[#8aad3a]"
-                                  />
-                                  <Label
-                                    htmlFor={`${q.id}_${opt}`}
-                                    className="text-gray-300 text-sm cursor-pointer"
-                                  >
-                                    {opt}
-                                  </Label>
-                                </div>
-                              ))}
-                            </RadioGroup>
-                          )}
-
-                          {q.questionType === "dropdown" && (
-                            <Select
-                              value={(answers[q.id] as string) ?? ""}
-                              onValueChange={(v) =>
-                                canEdit && setAnswer(q.id, v)
-                              }
-                              disabled={!canEdit}
-                            >
-                              <SelectTrigger className="bg-[#111c18] border-[#3a4f44] text-white max-w-sm">
-                                <SelectValue placeholder="Select an option" />
-                              </SelectTrigger>
-                              <SelectContent className="bg-[#1a2420] border-[#3a4f44]">
+                          {/* 1. Answer input */}
+                          <div>
+                            <p className="text-xs text-gray-400 mb-2">
+                              Answer
+                              {qErr.answer && (
+                                <span className="text-red-400 ml-1">
+                                  * Required
+                                </span>
+                              )}
+                            </p>
+                            {q.questionType === "radio" && (
+                              <RadioGroup
+                                value={ans.answer}
+                                onValueChange={(v) =>
+                                  canEdit && updateAnswer(q.id, "answer", v)
+                                }
+                                className="flex flex-wrap gap-4"
+                                disabled={!canEdit}
+                              >
                                 {q.options.map((opt) => (
-                                  <SelectItem
+                                  <div
                                     key={opt}
-                                    value={opt}
-                                    className="text-white focus:bg-[#2d3f38]"
+                                    className="flex items-center gap-2"
                                   >
-                                    {opt}
-                                  </SelectItem>
+                                    <RadioGroupItem
+                                      value={opt}
+                                      id={`${q.id}_${opt}`}
+                                      className="border-[#4a7c59] text-[#8aad3a]"
+                                    />
+                                    <Label
+                                      htmlFor={`${q.id}_${opt}`}
+                                      className="text-gray-300 text-sm cursor-pointer"
+                                    >
+                                      {opt}
+                                    </Label>
+                                  </div>
                                 ))}
-                              </SelectContent>
-                            </Select>
-                          )}
+                              </RadioGroup>
+                            )}
+                            {q.questionType === "dropdown" && (
+                              <Select
+                                value={ans.answer}
+                                onValueChange={(v) =>
+                                  canEdit && updateAnswer(q.id, "answer", v)
+                                }
+                                disabled={!canEdit}
+                              >
+                                <SelectTrigger
+                                  className={`bg-[#111c18] border-[#3a4f44] text-white max-w-sm ${
+                                    qErr.answer ? "border-red-600" : ""
+                                  }`}
+                                >
+                                  <SelectValue placeholder="Select an option" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-[#1a2420] border-[#3a4f44]">
+                                  {q.options.map((opt) => (
+                                    <SelectItem
+                                      key={opt}
+                                      value={opt}
+                                      className="text-white focus:bg-[#2d3f38]"
+                                    >
+                                      {opt}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
 
-                          {q.questionType === "remarks" && (
+                          {/* 2. Remarks — always mandatory */}
+                          <div>
+                            <p className="text-xs text-gray-400 mb-2">
+                              Remarks *
+                              {qErr.remarks && (
+                                <span className="text-red-400 ml-1">
+                                  — required
+                                </span>
+                              )}
+                            </p>
                             <Textarea
-                              value={(answers[q.id] as string) ?? ""}
+                              data-ocid="questionnaire.textarea"
+                              value={ans.remarks}
                               onChange={(e) =>
-                                canEdit && setAnswer(q.id, e.target.value)
+                                canEdit &&
+                                updateAnswer(q.id, "remarks", e.target.value)
                               }
                               placeholder="Enter your remarks here..."
-                              className="bg-[#111c18] border-[#3a4f44] text-white placeholder:text-gray-600 resize-none min-h-[80px]"
+                              className={`bg-[#111c18] border-[#3a4f44] text-white placeholder:text-gray-600 resize-none min-h-[80px] ${
+                                qErr.remarks
+                                  ? "border-red-600 focus-visible:ring-red-600"
+                                  : ""
+                              }`}
                               disabled={!canEdit}
                             />
-                          )}
+                          </div>
 
-                          {q.questionType === "imageUpload" && (
+                          {/* 3. Image Upload — only if template enables it */}
+                          {q.enableImageUpload && (
                             <div>
-                              <div className="flex flex-wrap gap-2 mb-2">
-                                {((answers[q.id] as string[]) ?? []).map(
-                                  (src, i) => (
-                                    <div
-                                      key={`img_${q.id}_${i}`}
-                                      className="relative group"
-                                    >
-                                      <img
-                                        src={src}
-                                        alt={`Upload ${i + 1}`}
-                                        className="h-20 w-20 object-cover rounded border border-[#3a4f44]"
-                                      />
-                                      {canEdit && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const imgs = [
-                                              ...((answers[q.id] as string[]) ??
-                                                []),
-                                            ];
-                                            imgs.splice(i, 1);
-                                            setAnswer(q.id, imgs);
-                                          }}
-                                          className="absolute top-0.5 right-0.5 bg-red-700/80 text-white rounded-full h-4 w-4 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100"
-                                        >
-                                          ×
-                                        </button>
-                                      )}
-                                    </div>
-                                  ),
+                              <p className="text-xs text-gray-400 mb-2">
+                                <ImageIcon className="h-3.5 w-3.5 inline mr-1" />
+                                Image Upload
+                                {q.imageUploadMandatory ? (
+                                  <span className="text-red-400 ml-1">*</span>
+                                ) : (
+                                  <span className="text-gray-600 ml-1">
+                                    (optional)
+                                  </span>
                                 )}
+                                {qErr.images && (
+                                  <span className="text-red-400 ml-1">
+                                    — at least 1 image required
+                                  </span>
+                                )}
+                              </p>
+                              <div className="flex flex-wrap gap-2 mb-2">
+                                {ans.images.map((src, i) => (
+                                  <div
+                                    key={`img_${q.id}_${i}`}
+                                    className="relative group"
+                                  >
+                                    <img
+                                      src={src}
+                                      alt={`Upload ${i + 1}`}
+                                      className="h-20 w-20 object-cover rounded border border-[#3a4f44]"
+                                    />
+                                    {canEdit && (
+                                      <button
+                                        type="button"
+                                        onClick={() => removeImage(q.id, i)}
+                                        className="absolute -top-1.5 -right-1.5 bg-red-700 text-white rounded-full h-5 w-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
                               {canEdit && (
                                 <label className="cursor-pointer">
-                                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#2a3d33] hover:bg-[#3a4f44] border border-[#3a4f44] rounded-lg text-sm text-gray-300 transition-colors">
+                                  <div
+                                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-gray-300 transition-colors border ${
+                                      qErr.images
+                                        ? "bg-red-900/20 border-red-600 hover:bg-red-900/30"
+                                        : "bg-[#2a3d33] hover:bg-[#3a4f44] border-[#3a4f44]"
+                                    }`}
+                                  >
                                     <ImageIcon className="h-4 w-4" /> Upload
                                     Images
-                                    {q.isMandatoryPhoto && (
-                                      <span className="text-red-400 text-xs">
-                                        (Required)
-                                      </span>
-                                    )}
                                   </div>
                                   <input
                                     type="file"
@@ -616,6 +742,7 @@ export default function QuestionnairePage({
         <div className="fixed bottom-0 left-56 right-0 bg-[#0d1912] border-t border-[#1e2e26] px-6 py-3 flex items-center">
           {canEdit && (
             <Button
+              data-ocid="questionnaire.save_button"
               onClick={handleManualSave}
               className="bg-[#2a3d33] hover:bg-[#3a4f44] text-gray-200 border border-[#3a4f44] gap-1.5"
             >
@@ -626,6 +753,7 @@ export default function QuestionnairePage({
           {/* Auditor submit */}
           {canAudit && (
             <Button
+              data-ocid="questionnaire.submit_button"
               onClick={validateAndSubmit}
               disabled={submitting}
               className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
@@ -638,6 +766,7 @@ export default function QuestionnairePage({
             role === "reviewer" &&
             audit?.status === "Submitted" && (
               <Button
+                data-ocid="questionnaire.submit_button"
                 onClick={validateAndSubmit}
                 className="bg-purple-700 hover:bg-purple-800 text-white gap-1.5"
               >
@@ -648,6 +777,7 @@ export default function QuestionnairePage({
           {canApprove && (
             <div className="flex gap-2">
               <Button
+                data-ocid="questionnaire.secondary_button"
                 onClick={() => setShowSendBackDialog(true)}
                 variant="outline"
                 className="border-yellow-700 text-yellow-300 hover:bg-yellow-900/20"
@@ -655,6 +785,7 @@ export default function QuestionnairePage({
                 Send Back
               </Button>
               <Button
+                data-ocid="questionnaire.confirm_button"
                 onClick={handleApprove}
                 className="bg-green-700 hover:bg-green-800 text-white gap-1.5"
               >
@@ -675,7 +806,10 @@ export default function QuestionnairePage({
 
       {/* Send back dialog */}
       <Dialog open={showSendBackDialog} onOpenChange={setShowSendBackDialog}>
-        <DialogContent className="bg-[#1a2420] border-[#3a4f44]">
+        <DialogContent
+          data-ocid="questionnaire.dialog"
+          className="bg-[#1a2420] border-[#3a4f44]"
+        >
           <DialogHeader>
             <DialogTitle className="text-white">
               Send Back for Re-Review
@@ -692,6 +826,7 @@ export default function QuestionnairePage({
           </div>
           <DialogFooter>
             <Button
+              data-ocid="questionnaire.cancel_button"
               variant="outline"
               onClick={() => setShowSendBackDialog(false)}
               className="border-[#3a4f44] text-gray-300"
@@ -699,6 +834,7 @@ export default function QuestionnairePage({
               Cancel
             </Button>
             <Button
+              data-ocid="questionnaire.confirm_button"
               onClick={handleSendBack}
               className="bg-yellow-700 hover:bg-yellow-800 text-white"
             >

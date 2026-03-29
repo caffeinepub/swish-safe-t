@@ -31,7 +31,35 @@ import {
   isTempAdmin,
 } from "../lib/userStore";
 
+const DATA_VERSION = "v3_remarks_per_question";
+
+function clearAllData() {
+  const keysToRemove = [
+    "swish_users",
+    "swish_clients",
+    "swish_sites",
+    "swish_templates",
+    "swish_tmpl_sections",
+    "swish_tmpl_questions",
+    "swish_audits",
+    "swish_sections",
+    "swish_questions",
+    "swish_session",
+    "swish_admin_claimed",
+  ];
+  for (const key of keysToRemove) {
+    localStorage.removeItem(key);
+  }
+}
+
 async function seedIfNeeded() {
+  // Version migration: clear and re-seed if data version changed
+  const currentVersion = localStorage.getItem("swish_data_version");
+  if (currentVersion !== DATA_VERSION) {
+    clearAllData();
+    localStorage.setItem("swish_data_version", DATA_VERSION);
+  }
+
   const users = getUsers();
   if (users.length > 0) return;
 
@@ -86,7 +114,7 @@ async function seedIfNeeded() {
     isEnabled: true,
   });
 
-  // Create sample template
+  // Create sample template with new schema
   const tmpl = templateStore.add({
     name: "Banking Branch Electrical Audit",
     description: "Standard electrical safety audit for banking branches",
@@ -107,7 +135,21 @@ async function seedIfNeeded() {
     questionType: "dropdown",
     options: ["HT - High Tension", "LT - Low Tension"],
     isMandatoryPhoto: false,
+    enableImageUpload: true,
+    imageUploadMandatory: true,
     order: 0,
+    isEnabled: true,
+  });
+  templateQuestionStore.add({
+    templateId: tmpl.id,
+    sectionId: sec1.id,
+    label: "Check for Meter seal (un-Intact)?",
+    questionType: "radio",
+    options: ["OK", "Not OK", "NA"],
+    isMandatoryPhoto: false,
+    enableImageUpload: true,
+    imageUploadMandatory: true,
+    order: 1,
     isEnabled: true,
   });
   templateQuestionStore.add({
@@ -117,27 +159,9 @@ async function seedIfNeeded() {
     questionType: "dropdown",
     options: ["Cleaned", "Dirty", "Needs Attention"],
     isMandatoryPhoto: false,
-    order: 1,
-    isEnabled: true,
-  });
-  templateQuestionStore.add({
-    templateId: tmpl.id,
-    sectionId: sec1.id,
-    label: "Check for Meter seal (un-Intact)?",
-    questionType: "dropdown",
-    options: ["OK", "Not OK"],
-    isMandatoryPhoto: false,
+    enableImageUpload: false,
+    imageUploadMandatory: false,
     order: 2,
-    isEnabled: true,
-  });
-  templateQuestionStore.add({
-    templateId: tmpl.id,
-    sectionId: sec1.id,
-    label: "Images of Mains Meter",
-    questionType: "imageUpload",
-    options: [],
-    isMandatoryPhoto: true,
-    order: 3,
     isEnabled: true,
   });
 
@@ -149,31 +173,25 @@ async function seedIfNeeded() {
   templateQuestionStore.add({
     templateId: tmpl.id,
     sectionId: sec2.id,
-    label: "Incomer condition",
+    label: "Incomer rating (Amps)?",
     questionType: "dropdown",
-    options: ["Good", "Fair", "Poor"],
+    options: ["100A", "200A", "400A", "630A"],
     isMandatoryPhoto: false,
+    enableImageUpload: true,
+    imageUploadMandatory: true,
     order: 0,
     isEnabled: true,
   });
   templateQuestionStore.add({
     templateId: tmpl.id,
     sectionId: sec2.id,
-    label: "Cable condition",
-    questionType: "dropdown",
-    options: ["Good", "Damaged", "Replaced"],
+    label: "Cable condition?",
+    questionType: "radio",
+    options: ["Good", "Damaged", "Requires Replacement"],
     isMandatoryPhoto: false,
+    enableImageUpload: true,
+    imageUploadMandatory: false,
     order: 1,
-    isEnabled: true,
-  });
-  templateQuestionStore.add({
-    templateId: tmpl.id,
-    sectionId: sec2.id,
-    label: "Remarks",
-    questionType: "remarks",
-    options: [],
-    isMandatoryPhoto: false,
-    order: 2,
     isEnabled: true,
   });
 
@@ -185,20 +203,24 @@ async function seedIfNeeded() {
   templateQuestionStore.add({
     templateId: tmpl.id,
     sectionId: sec3.id,
-    label: "Is Servo Stabilizer installed?",
+    label: "Stabilizer installed?",
     questionType: "radio",
-    options: ["Yes", "No"],
+    options: ["Yes", "No", "NA"],
     isMandatoryPhoto: false,
+    enableImageUpload: true,
+    imageUploadMandatory: true,
     order: 0,
     isEnabled: true,
   });
   templateQuestionStore.add({
     templateId: tmpl.id,
     sectionId: sec3.id,
-    label: "Stabilizer condition",
-    questionType: "dropdown",
-    options: ["Working", "Faulty", "Not Applicable"],
+    label: "Output voltage stable?",
+    questionType: "radio",
+    options: ["Yes", "No"],
     isMandatoryPhoto: false,
+    enableImageUpload: false,
+    imageUploadMandatory: false,
     order: 1,
     isEnabled: true,
   });
@@ -211,31 +233,25 @@ async function seedIfNeeded() {
   templateQuestionStore.add({
     templateId: tmpl.id,
     sectionId: sec4.id,
-    label: "DG set installed?",
-    questionType: "radio",
-    options: ["Yes", "No"],
+    label: "DG Set capacity (KVA)?",
+    questionType: "dropdown",
+    options: ["15", "25", "62.5", "125", "250"],
     isMandatoryPhoto: false,
+    enableImageUpload: true,
+    imageUploadMandatory: true,
     order: 0,
     isEnabled: true,
   });
   templateQuestionStore.add({
     templateId: tmpl.id,
     sectionId: sec4.id,
-    label: "DG capacity (KVA)",
-    questionType: "remarks",
-    options: [],
+    label: "Last maintenance done?",
+    questionType: "radio",
+    options: ["Within 3 months", "3-6 months", "Over 6 months"],
     isMandatoryPhoto: false,
+    enableImageUpload: true,
+    imageUploadMandatory: false,
     order: 1,
-    isEnabled: true,
-  });
-  templateQuestionStore.add({
-    templateId: tmpl.id,
-    sectionId: sec4.id,
-    label: "DG room images",
-    questionType: "imageUpload",
-    options: [],
-    isMandatoryPhoto: false,
-    order: 2,
     isEnabled: true,
   });
 
@@ -258,8 +274,8 @@ async function seedIfNeeded() {
 
   const s1 = siteStore.add({
     clientId: hdfc.id,
-    branchName: "Mumbai Main Branch",
-    branchAddress: "123 Nariman Point, Mumbai",
+    branchName: "HDFC Andheri",
+    branchAddress: "Andheri West, Mumbai",
     branchCode: "HDFC-MUM-001",
     branchCity: "Mumbai",
     branchState: "Maharashtra",
@@ -277,11 +293,11 @@ async function seedIfNeeded() {
   });
   const s2 = siteStore.add({
     clientId: hdfc.id,
-    branchName: "Delhi Connaught Place",
-    branchAddress: "Block A, Connaught Place, New Delhi",
-    branchCode: "HDFC-DEL-002",
-    branchCity: "New Delhi",
-    branchState: "Delhi",
+    branchName: "HDFC Bandra",
+    branchAddress: "Bandra West, Mumbai",
+    branchCode: "HDFC-MUM-002",
+    branchCity: "Mumbai",
+    branchState: "Maharashtra",
     branchType: "Urban",
     scheduledAuditDate: "2026-04-22",
     auditorId: auditor2.id,
@@ -296,10 +312,10 @@ async function seedIfNeeded() {
   });
   const s3 = siteStore.add({
     clientId: hdfc.id,
-    branchName: "Pune Koregaon Branch",
-    branchAddress: "45 Koregaon Park, Pune",
-    branchCode: "HDFC-PUN-003",
-    branchCity: "Pune",
+    branchName: "HDFC Kurla",
+    branchAddress: "Kurla East, Mumbai",
+    branchCode: "HDFC-MUM-003",
+    branchCity: "Mumbai",
     branchState: "Maharashtra",
     branchType: "Urban",
     scheduledAuditDate: "2026-05-03",
@@ -314,14 +330,14 @@ async function seedIfNeeded() {
     createdBy: admin.id,
   });
   const s4 = siteStore.add({
-    clientId: idbi.id,
-    branchName: "Gurgaon Sector 14",
-    branchAddress: "Sector 14, Gurgaon, Haryana",
-    branchCode: "IDBI-GGN-001",
-    branchCity: "Gurgaon",
-    branchState: "Haryana",
+    clientId: hdfc.id,
+    branchName: "HDFC Powai",
+    branchAddress: "Powai, Mumbai",
+    branchCode: "HDFC-MUM-004",
+    branchCity: "Mumbai",
+    branchState: "Maharashtra",
     branchType: "Urban",
-    scheduledAuditDate: "2026-04-28",
+    scheduledAuditDate: "2026-05-10",
     auditorId: auditor2.id,
     auditorName: auditor2.fullName,
     reviewerId: reviewer1.id,
@@ -333,16 +349,73 @@ async function seedIfNeeded() {
     createdBy: admin.id,
   });
   const s5 = siteStore.add({
-    clientId: idbi.id,
-    branchName: "Amritsar Main Branch",
-    branchAddress: "Lawrence Road, Amritsar, Punjab",
-    branchCode: "IDBI-AMR-002",
-    branchCity: "Amritsar",
-    branchState: "Punjab",
-    branchType: "Urban",
-    scheduledAuditDate: "2026-05-10",
+    clientId: hdfc.id,
+    branchName: "HDFC Thane",
+    branchAddress: "Thane West, Maharashtra",
+    branchCode: "HDFC-THA-005",
+    branchCity: "Thane",
+    branchState: "Maharashtra",
+    branchType: "Semi-urban",
+    scheduledAuditDate: "2026-05-20",
     auditorId: auditor1.id,
     auditorName: auditor1.fullName,
+    reviewerId: reviewer1.id,
+    reviewerName: reviewer1.fullName,
+    managerId: manager1.id,
+    managerName: manager1.fullName,
+    templateId: tmpl.id,
+    isEnabled: true,
+    createdBy: admin.id,
+  });
+  const s6 = siteStore.add({
+    clientId: idbi.id,
+    branchName: "IDBI Connaught Place",
+    branchAddress: "Connaught Place, New Delhi",
+    branchCode: "IDBI-DEL-001",
+    branchCity: "New Delhi",
+    branchState: "Delhi",
+    branchType: "Metro",
+    scheduledAuditDate: "2026-04-28",
+    auditorId: auditor2.id,
+    auditorName: auditor2.fullName,
+    reviewerId: reviewer1.id,
+    reviewerName: reviewer1.fullName,
+    managerId: manager1.id,
+    managerName: manager1.fullName,
+    templateId: tmpl.id,
+    isEnabled: true,
+    createdBy: admin.id,
+  });
+  const s7 = siteStore.add({
+    clientId: idbi.id,
+    branchName: "IDBI Karol Bagh",
+    branchAddress: "Karol Bagh, New Delhi",
+    branchCode: "IDBI-DEL-002",
+    branchCity: "New Delhi",
+    branchState: "Delhi",
+    branchType: "Urban",
+    scheduledAuditDate: "2026-05-08",
+    auditorId: auditor1.id,
+    auditorName: auditor1.fullName,
+    reviewerId: reviewer1.id,
+    reviewerName: reviewer1.fullName,
+    managerId: manager1.id,
+    managerName: manager1.fullName,
+    templateId: tmpl.id,
+    isEnabled: true,
+    createdBy: admin.id,
+  });
+  const s8 = siteStore.add({
+    clientId: idbi.id,
+    branchName: "IDBI Lajpat Nagar",
+    branchAddress: "Lajpat Nagar, New Delhi",
+    branchCode: "IDBI-DEL-003",
+    branchCity: "New Delhi",
+    branchState: "Delhi",
+    branchType: "Urban",
+    scheduledAuditDate: "2026-05-15",
+    auditorId: auditor2.id,
+    auditorName: auditor2.fullName,
     reviewerId: reviewer1.id,
     reviewerName: reviewer1.fullName,
     managerId: manager1.id,
@@ -359,24 +432,80 @@ async function seedIfNeeded() {
     clientId: string;
     offset: number;
     status: "Draft" | "Submitted" | "Reviewed" | "Completed";
+    auditorId: string;
+    auditorName: string;
   }> = [
-    { siteId: s1.id, clientId: hdfc.id, offset: 0, status: "Draft" },
-    { siteId: s2.id, clientId: hdfc.id, offset: 1, status: "Submitted" },
-    { siteId: s3.id, clientId: hdfc.id, offset: 1, status: "Reviewed" },
-    { siteId: s4.id, clientId: idbi.id, offset: 2, status: "Completed" },
-    { siteId: s5.id, clientId: idbi.id, offset: 2, status: "Submitted" },
-    { siteId: s1.id, clientId: hdfc.id, offset: 3, status: "Completed" },
-    { siteId: s2.id, clientId: hdfc.id, offset: 3, status: "Completed" },
-    { siteId: s4.id, clientId: idbi.id, offset: 4, status: "Reviewed" },
-    { siteId: s3.id, clientId: hdfc.id, offset: 4, status: "Draft" },
-    { siteId: s5.id, clientId: idbi.id, offset: 5, status: "Submitted" },
+    {
+      siteId: s1.id,
+      clientId: hdfc.id,
+      offset: 0,
+      status: "Draft",
+      auditorId: auditor1.id,
+      auditorName: auditor1.fullName,
+    },
+    {
+      siteId: s2.id,
+      clientId: hdfc.id,
+      offset: 1,
+      status: "Submitted",
+      auditorId: auditor2.id,
+      auditorName: auditor2.fullName,
+    },
+    {
+      siteId: s3.id,
+      clientId: hdfc.id,
+      offset: 1,
+      status: "Reviewed",
+      auditorId: auditor1.id,
+      auditorName: auditor1.fullName,
+    },
+    {
+      siteId: s4.id,
+      clientId: hdfc.id,
+      offset: 2,
+      status: "Completed",
+      auditorId: auditor2.id,
+      auditorName: auditor2.fullName,
+    },
+    {
+      siteId: s5.id,
+      clientId: hdfc.id,
+      offset: 2,
+      status: "Submitted",
+      auditorId: auditor1.id,
+      auditorName: auditor1.fullName,
+    },
+    {
+      siteId: s6.id,
+      clientId: idbi.id,
+      offset: 3,
+      status: "Completed",
+      auditorId: auditor2.id,
+      auditorName: auditor2.fullName,
+    },
+    {
+      siteId: s7.id,
+      clientId: idbi.id,
+      offset: 3,
+      status: "Reviewed",
+      auditorId: auditor1.id,
+      auditorName: auditor1.fullName,
+    },
+    {
+      siteId: s8.id,
+      clientId: idbi.id,
+      offset: 4,
+      status: "Draft",
+      auditorId: auditor2.id,
+      auditorName: auditor2.fullName,
+    },
   ];
   for (const a of samples) {
     auditStore.add({
       siteId: a.siteId,
       clientId: a.clientId,
-      auditorId: auditor1.id,
-      auditorName: auditor1.fullName,
+      auditorId: a.auditorId,
+      auditorName: a.auditorName,
       status: a.status,
       answersJson: "{}",
       reviewComment: "",

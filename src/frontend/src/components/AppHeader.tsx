@@ -51,7 +51,7 @@ export default function AppHeader({ session, currentPage, onNavigate }: Props) {
           onClick={() => onNavigate({ name: "dashboard" })}
         >
           <img
-            src="/assets/uploads/safe_t_logo-019d3830-ffb9-71af-b8f2-a7c3b78b8dba-1.png"
+            src="/assets/generated/safe_t_logo_transparent.png"
             alt="SWiSH SAFE-T"
             className="h-10 w-auto object-contain"
           />

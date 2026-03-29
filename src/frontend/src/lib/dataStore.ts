@@ -81,12 +81,27 @@ export interface TemplateQuestion {
   templateId: string;
   sectionId: string;
   label: string;
+  /** Only 'radio' | 'dropdown' for new templates. Legacy values kept for compat. */
   questionType: "radio" | "dropdown" | "remarks" | "imageUpload";
   options: string[];
+  /** @deprecated use enableImageUpload + imageUploadMandatory instead */
   isMandatoryPhoto: boolean;
+  /** Whether this question has an image upload field */
+  enableImageUpload: boolean;
+  /** Whether at least one image is required for submission */
+  imageUploadMandatory: boolean;
   order: number;
   isEnabled: boolean;
 }
+
+/** Per-question answer stored in audit answersJson */
+export interface QuestionAnswer {
+  answer: string;
+  remarks: string;
+  images: string[];
+}
+
+export type AuditAnswers = Record<string, QuestionAnswer>;
 
 export interface Audit {
   id: string;
