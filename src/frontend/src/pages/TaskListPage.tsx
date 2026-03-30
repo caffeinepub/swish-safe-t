@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { NavPage } from "../App";
+import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
 import { auditStore, clientStore, siteStore } from "../lib/dataStore";
 import type { Audit, Site } from "../lib/dataStore";
@@ -180,6 +181,11 @@ export default function TaskListPage({ session, onNavigate }: Props) {
         onNavigate={onNavigate}
       />
       <div className="flex-1 flex flex-col min-w-0">
+        <MobileNav
+          session={session}
+          currentPage="task-list"
+          onNavigate={onNavigate}
+        />
         <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 shrink-0">
           <h1 className="text-lg font-bold text-white">Task List</h1>
           <p className="text-xs text-gray-500">Your assigned site audits</p>

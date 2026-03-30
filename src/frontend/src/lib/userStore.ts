@@ -3,7 +3,8 @@ export type UserRole = "admin" | "manager" | "reviewer" | "auditor";
 export interface StoredUser {
   id: string;
   username: string;
-  passwordHash: string;
+  /** Plain-text password (no hash — simple & reliable) */
+  password: string;
   fullName: string;
   role: UserRole;
   originalRole: UserRole;

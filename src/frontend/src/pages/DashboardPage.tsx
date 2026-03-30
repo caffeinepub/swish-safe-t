@@ -29,6 +29,7 @@ import {
   YAxis,
 } from "recharts";
 import type { NavPage } from "../App";
+import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
 import { auditStore, clientStore, siteStore } from "../lib/dataStore";
 import type { Session } from "../lib/session";
@@ -229,6 +230,11 @@ export default function DashboardPage({ session, onNavigate }: Props) {
         onNavigate={onNavigate}
       />
       <div className="flex-1 flex flex-col min-w-0">
+        <MobileNav
+          session={session}
+          currentPage="dashboard"
+          onNavigate={onNavigate}
+        />
         <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 flex items-center justify-between shrink-0">
           <div>
             <h1 className="text-lg font-bold text-white">Dashboard</h1>

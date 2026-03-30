@@ -50,6 +50,7 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
+import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
 import { useActor } from "../hooks/useActor";
 import { listUsersFromBackend } from "../lib/backendUserService";
@@ -265,6 +266,11 @@ export default function SitesPage({
         onNavigate={onNavigate}
       />
       <div className="flex-1 flex flex-col min-w-0">
+        <MobileNav
+          session={session}
+          currentPage="clients"
+          onNavigate={onNavigate}
+        />
         <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 flex items-center gap-3 shrink-0">
           <Button
             variant="ghost"

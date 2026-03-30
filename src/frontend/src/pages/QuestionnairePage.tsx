@@ -36,6 +36,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
+import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
 import {
   type Audit,
@@ -560,13 +561,17 @@ export default function QuestionnairePage({
             .map(([secId, ps]) => [`__ps_${secId}`, ps]),
         ),
       };
+      const answersJson = JSON.stringify(combined);
+      // Pure synchronous localStorage write — guaranteed to work with no signal
+      // This is the auto-save draft key used for recovery
+      localStorage.setItem(`audit_draft_${siteId}`, answersJson);
       auditStore.update(audit.id, {
-        answersJson: JSON.stringify(combined),
+        answersJson,
         lastSavedAt: Date.now(),
       });
       setTimeout(() => setSaving(false), 500);
     },
-    [audit],
+    [audit, siteId],
   );
 
   const getOrEmpty = (qId: string): QuestionAnswer =>
@@ -894,6 +899,11 @@ export default function QuestionnairePage({
           onNavigate={onNavigate}
         />
         <div className="flex-1 flex items-center justify-center">
+          <MobileNav
+            session={session}
+            currentPage="task-list"
+            onNavigate={onNavigate}
+          />
           <p className="text-gray-400">Site not found.</p>
         </div>
       </div>
@@ -1007,7 +1017,7 @@ export default function QuestionnairePage({
           )}
         </header>
 
-        <main className="flex-1 overflow-auto px-4 py-5 pb-24">
+        <main className="flex-1 overflow-auto px-4 py-5 pb-32 md:pb-24">
           {sections.map((sec, si) => {
             const qs = questionsBySec[sec.id] ?? [];
             const isExpanded = expandedSections.has(sec.id);
@@ -1554,12 +1564,19 @@ export default function QuestionnairePage({
         </main>
 
         {/* Fixed bottom bar */}
-        <div className="fixed bottom-0 left-56 right-0 bg-[#0d1912] border-t border-[#1e2e26] px-6 py-3 flex items-center">
+        {/* Fixed footer — thumb-friendly on iOS/Android */}
+        <div
+          className="fixed bottom-0 left-0 md:left-56 right-0 bg-[#0d1912] border-t border-[#1e2e26] px-3 md:px-6 flex items-center gap-2"
+          style={{
+            paddingTop: "10px",
+            paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)",
+          }}
+        >
           {canEdit && (
             <Button
               data-ocid="questionnaire.save_button"
               onClick={handleManualSave}
-              className="bg-[#2a3d33] hover:bg-[#3a4f44] text-gray-200 border border-[#3a4f44] gap-1.5"
+              className="bg-[#2a3d33] hover:bg-[#3a4f44] text-gray-200 border border-[#3a4f44] gap-1.5 min-h-[48px] md:min-h-[36px] text-base md:text-sm px-4 md:px-3"
             >
               <Save className="h-4 w-4" /> Update Report
             </Button>
@@ -1570,7 +1587,7 @@ export default function QuestionnairePage({
               data-ocid="questionnaire.submit_button"
               onClick={validateAndSubmit}
               disabled={submitting}
-              className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
+              className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5 min-h-[48px] md:min-h-[36px] text-base md:text-sm px-5 md:px-4"
             >
               <CheckCircle2 className="h-4 w-4" /> Submit
             </Button>

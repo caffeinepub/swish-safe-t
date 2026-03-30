@@ -30,6 +30,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
+import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
 import {
   type QuestionTemplate,
@@ -358,6 +359,11 @@ export default function TemplatePage({ session, onNavigate }: Props) {
         onNavigate={onNavigate}
       />
       <div className="flex-1 flex flex-col min-w-0">
+        <MobileNav
+          session={session}
+          currentPage="templates"
+          onNavigate={onNavigate}
+        />
         <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 flex items-center justify-between shrink-0">
           <div>
             <h1 className="text-lg font-bold text-white">

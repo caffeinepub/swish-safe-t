@@ -83,7 +83,7 @@ export default function Sidebar({ session, currentPage, onNavigate }: Props) {
   };
 
   return (
-    <aside className="w-56 shrink-0 min-h-screen bg-[#0d1912] border-r border-[#1e2e26] flex flex-col">
+    <aside className="hidden md:flex w-56 shrink-0 min-h-screen bg-[#0d1912] border-r border-[#1e2e26] flex-col">
       {/* Logo */}
       <div className="p-4 border-b border-[#1e2e26]">
         <button

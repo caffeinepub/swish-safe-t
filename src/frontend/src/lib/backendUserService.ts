@@ -43,7 +43,7 @@ function publicToStoredUser(u: AppUserPublicBackend): StoredUser {
   return {
     id: u.username,
     username: u.username,
-    passwordHash: "", // not available in public API — set empty
+    password: "", // not available in public API — set empty
     fullName: u.fullName,
     role: variantToRole(u.role),
     originalRole: variantToRole(u.originalRole),
@@ -55,7 +55,7 @@ function publicToStoredUser(u: AppUserPublicBackend): StoredUser {
 function toAppUser(u: StoredUser): AppUserBackend {
   return {
     username: u.username.toLowerCase(),
-    passwordHash: u.passwordHash,
+    passwordHash: u.password ?? "",
     fullName: u.fullName,
     role: roleToVariant(u.role),
     originalRole: roleToVariant(u.originalRole),

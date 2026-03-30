@@ -6,7 +6,6 @@ import {
   useEffect,
   useState,
 } from "react";
-import { hashPassword } from "../lib/crypto";
 import {
   auditStore,
   clientStore,
@@ -27,11 +26,14 @@ import {
   getUserByUsername,
   hasAdmin,
   isTempAdmin,
+  updateUser,
 } from "../lib/userStore";
 
-const DATA_VERSION = "v9_localStorage";
-const ADMIN_USERNAME = "admin";
-const ADMIN_PASSWORD = "Admin@1234";
+// ── Version key ───────────────────────────────────────────────────────────
+// Bump this to wipe old localStorage data and re-seed with new credentials.
+const DATA_VERSION = "SWISH_DATA_V4";
+const ADMIN_USERNAME = "APA_Arun";
+const ADMIN_PASSWORD = "SWiSH_SafeArun@21";
 
 function clearLocalData() {
   const keysToRemove = [
@@ -43,22 +45,25 @@ function clearLocalData() {
     "swish_audits",
     "swish_sections",
     "swish_questions",
-    "swish_session",
-    "swish_admin_claimed",
     "swish_users",
+    // clear old version data_version keys
+    "swish_data_version",
   ];
-  for (const key of keysToRemove) {
+  // Also clear any audit drafts
+  const draftKeys = Object.keys(localStorage).filter((k) =>
+    k.startsWith("audit_draft_"),
+  );
+  for (const key of [...keysToRemove, ...draftKeys]) {
     localStorage.removeItem(key);
   }
 }
 
-async function ensureAdminSeeded() {
+function ensureAdminSeeded() {
   if (hasAdmin()) return;
-  const hash = await hashPassword(ADMIN_USERNAME, ADMIN_PASSWORD);
   addUser({
     username: ADMIN_USERNAME,
-    passwordHash: hash,
-    fullName: "Administrator",
+    password: ADMIN_PASSWORD,
+    fullName: "APA Arun",
     role: "admin",
     originalRole: "admin",
     elevatedUntil: null,
@@ -427,27 +432,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ensureAdminSeeded();
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    try {
-      // Ensure admin always exists
-      await ensureAdminSeeded();
+  const login = useCallback(
+    (
+      username: string,
+      password: string,
+    ): Promise<{ success: boolean; error?: string }> => {
+      // Ensure admin always exists (sync, no async)
+      ensureAdminSeeded();
 
-      const hash = await hashPassword(username, password);
       const user = getUserByUsername(username);
 
-      if (!user || user.passwordHash !== hash) {
-        return { success: false, error: "Invalid username or password" };
+      if (!user || user.password !== password) {
+        return Promise.resolve({
+          success: false,
+          error: "Invalid username or password",
+        });
       }
       if (!user.isEnabled) {
-        return {
+        return Promise.resolve({
           success: false,
           error: "Your account has been disabled. Contact your admin.",
-        };
+        });
       }
 
       // Check temp admin expiry
       if (user.elevatedUntil && Date.now() > user.elevatedUntil) {
-        const { updateUser } = await import("../lib/userStore");
         updateUser(user.id, { role: user.originalRole, elevatedUntil: null });
         user.role = user.originalRole;
         user.elevatedUntil = null;
@@ -455,12 +464,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const sess = setSession(user);
       setSessionState(sess);
-      return { success: true };
-    } catch (err) {
-      console.error("[AuthContext] login error:", err);
-      return { success: false, error: "An error occurred. Please try again." };
-    }
-  }, []);
+      return Promise.resolve({ success: true });
+    },
+    [],
+  );
 
   const logout = useCallback(() => {
     clearSession();

@@ -8,11 +8,12 @@ export interface Session {
   isTemporaryAdmin: boolean;
 }
 
+// Use sessionStorage so the session clears when the browser tab/window closes
 const SESSION_KEY = "swish_session";
 
 export function getSession(): Session | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -31,10 +32,10 @@ export function setSession(user: StoredUser): Session {
     role: user.role,
     isTemporaryAdmin: isTemp,
   };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   return session;
 }
 
 export function clearSession() {
-  localStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
 }

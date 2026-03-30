@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, Layers, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
 import {
   type Question,
@@ -127,6 +128,14 @@ export default function ConfigPage({ session, clientId, onBack }: Props) {
         }}
       />
       <div className="flex-1 flex flex-col min-w-0">
+        <MobileNav
+          session={session}
+          currentPage="clients"
+          onNavigate={(p) => {
+            if (p.name !== "clients" && p.name !== "dashboard") return;
+            onBack();
+          }}
+        />
         <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 flex items-center gap-3 shrink-0">
           <Button
             variant="ghost"

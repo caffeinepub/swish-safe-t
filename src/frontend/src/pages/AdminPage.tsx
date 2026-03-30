@@ -29,18 +29,20 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
+  Download,
   Pencil,
   Plus,
   Shield,
   ShieldCheck,
   ToggleLeft,
+  Upload,
   Users,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
+import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
-import { hashPassword } from "../lib/crypto";
 import type { Session } from "../lib/session";
 import {
   type StoredUser,
@@ -89,6 +91,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
   });
   const [saving, setSaving] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState<StoredUser | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const reload = () => setUsers(getUsers());
 
@@ -119,7 +122,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
     setShowForm(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!form.fullName.trim() || !form.username.trim()) {
       toast.error("Name and username are required");
       return;
@@ -146,18 +149,14 @@ export default function AdminPage({ session, onNavigate }: Props) {
           isEnabled: form.isEnabled,
         };
         if (form.password) {
-          updates.passwordHash = await hashPassword(
-            form.username,
-            form.password,
-          );
+          updates.password = form.password;
         }
         updateUser(editingUser.id, updates);
         toast.success("User updated");
       } else {
-        const hash = await hashPassword(form.username.trim(), form.password);
         addUser({
           username: form.username.trim(),
-          passwordHash: hash,
+          password: form.password,
           fullName: form.fullName.trim(),
           role: form.role,
           originalRole: form.role,
@@ -201,30 +200,125 @@ export default function AdminPage({ session, onNavigate }: Props) {
     reload();
   };
 
+  // Export users as JSON file
+  const handleExport = () => {
+    const data = JSON.stringify(getUsers(), null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "swish-users-export.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Users exported to swish-users-export.json");
+  };
+
+  // Import users from JSON file — merges, skips duplicates by username
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const imported: StoredUser[] = JSON.parse(ev.target?.result as string);
+        if (!Array.isArray(imported)) throw new Error("Invalid format");
+        const existing = getUsers();
+        const existingUsernames = new Set(
+          existing.map((u) => u.username.toLowerCase()),
+        );
+        let added = 0;
+        for (const u of imported) {
+          if (!u.username || !u.password) continue;
+          if (existingUsernames.has(u.username.toLowerCase())) continue;
+          addUser({
+            username: u.username,
+            password: u.password,
+            fullName: u.fullName || u.username,
+            role: u.role || "auditor",
+            originalRole: u.originalRole || u.role || "auditor",
+            elevatedUntil: null,
+            isEnabled: u.isEnabled ?? true,
+          });
+          added++;
+        }
+        toast.success(
+          `Imported ${added} new user${added !== 1 ? "s" : ""} (${imported.length - added} skipped as duplicates)`,
+        );
+        reload();
+      } catch {
+        toast.error(
+          "Failed to parse import file. Make sure it is a valid JSON export.",
+        );
+      }
+      // Reset input so same file can be re-imported if needed
+      if (importInputRef.current) importInputRef.current.value = "";
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="flex min-h-screen bg-[#111c18]">
       <Sidebar session={session} currentPage="admin" onNavigate={onNavigate} />
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 flex items-center gap-2 shrink-0">
+        <MobileNav
+          session={session}
+          currentPage="admin"
+          onNavigate={onNavigate}
+        />
+        <header className="bg-[#0d1912] border-b border-[#1e2e26] px-4 md:px-6 py-3 flex items-center gap-2 shrink-0">
           <Users className="h-5 w-5 text-[#8aad3a]" />
           <h1 className="text-lg font-bold text-white">Admin Panel</h1>
         </header>
-        <main className="flex-1 p-5 overflow-auto">
+        <main className="flex-1 p-4 md:p-5 overflow-auto">
           <Card className="bg-[#1a2420] border-[#1e2e26]">
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 gap-2 flex-wrap">
               <CardTitle className="text-white text-base flex items-center gap-2">
                 <Users className="h-4 w-4 text-[#6aab7e]" />
                 User Management
               </CardTitle>
-              <Button
-                size="sm"
-                onClick={openAdd}
-                className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
-                data-ocid="admin.primary_button"
-              >
-                <Plus className="h-4 w-4" />
-                Add User
-              </Button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Import */}
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImport}
+                  data-ocid="admin.upload_button"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => importInputRef.current?.click()}
+                  className="border-[#3a4f44] text-gray-300 hover:text-white gap-1.5"
+                  data-ocid="admin.secondary_button"
+                  title="Import users from JSON file"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Import</span>
+                </Button>
+                {/* Export */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleExport}
+                  className="border-[#3a4f44] text-gray-300 hover:text-white gap-1.5"
+                  data-ocid="admin.save_button"
+                  title="Export all users as JSON"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Export</span>
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={openAdd}
+                  className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
+                  data-ocid="admin.primary_button"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add User
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {users.length === 0 ? (
@@ -353,6 +447,42 @@ export default function AdminPage({ session, onNavigate }: Props) {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-[#1a2420] border-[#1e2e26] mt-4">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-white text-sm flex items-center gap-2">
+                <Download className="h-4 w-4 text-[#6aab7e]" />
+                Cross-Device User Sharing
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-gray-400 space-y-2">
+              <p>
+                <strong className="text-gray-300">
+                  To share users with another device:
+                </strong>
+              </p>
+              <ol className="list-decimal list-inside space-y-1 ml-1">
+                <li>
+                  Click <strong className="text-gray-300">Export</strong> above
+                  to download{" "}
+                  <code className="bg-[#111c18] px-1 rounded">
+                    swish-users-export.json
+                  </code>
+                </li>
+                <li>Open the app on the other device and log in as Admin</li>
+                <li>
+                  Go to Admin Panel and click{" "}
+                  <strong className="text-gray-300">Import</strong>
+                </li>
+                <li>
+                  Select the exported JSON file — users are merged instantly
+                </li>
+              </ol>
+              <p className="text-gray-500 mt-2">
+                Duplicate usernames are automatically skipped during import.
+              </p>
             </CardContent>
           </Card>
         </main>
