@@ -53,11 +53,10 @@ import { toast } from "sonner";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
-import { useActor } from "../hooks/useActor";
-import { listUsersFromBackend } from "../lib/backendUserService";
+
 import { type Site, siteStore, templateStore } from "../lib/dataStore";
 import type { Session } from "../lib/session";
-import type { StoredUser } from "../lib/userStore";
+import { type StoredUser, getUsers } from "../lib/userStore";
 
 interface Props {
   session: Session;
@@ -148,18 +147,11 @@ export default function SitesPage({
   const canEditDelete = role === "admin" || role === "manager";
   const canManageAssignments =
     role === "admin" || role === "manager" || role === "reviewer";
-  const { actor, isFetching } = useActor();
-  const [backendUsers, setBackendUsers] = useState<StoredUser[]>([]);
+
   const templates = templateStore.getAll();
 
-  // Load users from backend
-  useEffect(() => {
-    if (actor && !isFetching) {
-      listUsersFromBackend(actor).then(setBackendUsers).catch(console.error);
-    }
-  }, [actor, isFetching]);
-
-  const users = backendUsers.filter((u) => u.isEnabled);
+  // Load users from localStorage (same source as Admin Panel)
+  const users = getUsers().filter((u) => u.isEnabled);
   const auditors = users.filter((u) => u.role === "auditor");
   const reviewers = users.filter((u) => u.role === "reviewer");
   const managers = users.filter(
@@ -686,9 +678,6 @@ export default function SitesPage({
             <div>
               <h3 className="text-[10px] font-semibold text-[#8aad3a] uppercase tracking-widest mb-3 flex items-center gap-2">
                 <User className="h-3.5 w-3.5" /> Assignments
-                {isFetching && (
-                  <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
-                )}
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
@@ -724,7 +713,7 @@ export default function SitesPage({
                       )}
                     </SelectContent>
                   </Select>
-                  {auditors.length === 0 && !isFetching && (
+                  {auditors.length === 0 && (
                     <p className="text-xs text-yellow-400">
                       Add auditor users in Admin Panel first.
                     </p>
