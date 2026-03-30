@@ -25,6 +25,8 @@ import {
   ChevronRight,
   ClipboardList,
   Copy,
+  FileDown,
+  FileSpreadsheet,
   ImageIcon,
   Loader2,
   Minus,
@@ -51,6 +53,8 @@ import {
   templateSectionStore,
   templateStore,
 } from "../lib/dataStore";
+import { exportAuditToExcel } from "../lib/exportExcel";
+import { exportAuditToWord } from "../lib/exportWord";
 import type { Session } from "../lib/session";
 
 interface Props {
@@ -517,6 +521,7 @@ export default function QuestionnairePage({
   const [obsErrors, setObsErrors] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [isExportingWord, setIsExportingWord] = useState(false);
   const [showSendBackDialog, setShowSendBackDialog] = useState(false);
   const [sendBackComment, setSendBackComment] = useState("");
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -869,6 +874,35 @@ export default function QuestionnairePage({
     toast.success("Sent back for re-review");
   };
 
+  const handleExportExcel = () => {
+    if (!audit || !site || !client || !template) return;
+    const allQuestions = templateQuestionStore
+      .getByTemplate(template.id)
+      .sort((a, b) => a.order - b.order);
+    try {
+      exportAuditToExcel(audit, site, client, sections, allQuestions);
+      toast.success("Excel report downloaded");
+    } catch {
+      toast.error("Failed to generate Excel report");
+    }
+  };
+
+  const handleExportWord = async () => {
+    if (!audit || !site || !client || !template) return;
+    setIsExportingWord(true);
+    const allQuestions = templateQuestionStore
+      .getByTemplate(template.id)
+      .sort((a, b) => a.order - b.order);
+    try {
+      await exportAuditToWord(audit, site, client, sections, allQuestions);
+      toast.success("Word report downloaded");
+    } catch {
+      toast.error("Failed to generate Word report");
+    } finally {
+      setIsExportingWord(false);
+    }
+  };
+
   const isReadOnly =
     (role === "auditor" &&
       !!audit &&
@@ -889,6 +923,12 @@ export default function QuestionnairePage({
     (role === "manager" || role === "admin") &&
     !!audit &&
     audit.status === "Reviewed";
+  const canExport =
+    !!audit &&
+    ["Submitted", "Reviewed", "PendingReReview", "Completed"].includes(
+      audit.status,
+    ) &&
+    ["admin", "manager", "reviewer"].includes(role);
 
   if (!site) {
     return (
@@ -1619,6 +1659,34 @@ export default function QuestionnairePage({
                 className="bg-green-700 hover:bg-green-800 text-white gap-1.5"
               >
                 <CheckCircle2 className="h-4 w-4" /> Approve
+              </Button>
+            </div>
+          )}
+          {canExport && (
+            <div className="flex gap-2 ml-2">
+              <Button
+                data-ocid="questionnaire.secondary_button"
+                onClick={handleExportExcel}
+                variant="outline"
+                size="sm"
+                className="border-[#3a4f44] text-gray-300 hover:bg-[#2a3d33] gap-1.5"
+              >
+                <FileSpreadsheet className="h-4 w-4" /> Excel
+              </Button>
+              <Button
+                data-ocid="questionnaire.secondary_button"
+                onClick={handleExportWord}
+                disabled={isExportingWord}
+                variant="outline"
+                size="sm"
+                className="border-[#3a4f44] text-gray-300 hover:bg-[#2a3d33] gap-1.5"
+              >
+                {isExportingWord ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileDown className="h-4 w-4" />
+                )}
+                Word
               </Button>
             </div>
           )}

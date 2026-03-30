@@ -1,40 +1,72 @@
-# SWiSH SAFE-T Electrical Audit Tool
+# SWiSH SAFE-T — Export Feature
 
 ## Current State
-Workspace is empty (files lost between sessions). Full rebuild required.
+The app is a full-featured electrical safety audit tool (localStorage-based). QuestionnairePage.tsx handles the full audit form with answers, remarks, images, critical observations, and power supply details. There is no export functionality yet. The app has no xlsx or docx libraries installed.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Full rebuild of entire application
-- Thumb-friendly mobile CSS for floating Update/Submit buttons (min 48px touch targets, safe-area-inset support for iOS notch)
-- Auto-save explicitly uses localStorage writes with debounce so it never fails on signal loss
+- `xlsx` npm package for Excel export
+- `docx` npm package for Word export
+- `src/frontend/src/lib/exportExcel.ts` — utility to generate Excel file from audit data
+- `src/frontend/src/lib/exportWord.ts` — utility to generate Word/Doc report from audit data
+- Export buttons (Excel + Word) on the QuestionnairePage, visible only to Reviewer/Manager/Admin when audit status is Submitted, Under Review, Reviewed, or Completed
 
 ### Modify
-- Floating footer buttons: larger touch targets, proper padding, `env(safe-area-inset-bottom)` for iOS home indicator clearance
-- Auto-save: localStorage-first, no network dependency for save operation
+- `src/frontend/package.json` — add `xlsx` and `docx` dependencies
+- `src/frontend/src/pages/QuestionnairePage.tsx` — add Export Excel and Export Word buttons to the action bar area (near Submit/Update buttons), role and status gated
 
 ### Remove
-- Nothing (full rebuild restores all existing features)
+- Nothing
 
 ## Implementation Plan
 
-### Backend (Motoko)
-- `stable var` user storage with preupgrade/postupgrade hooks
-- `createAppUser`, `verifyAppUserCredentials`, `getAppUserPublic`, `listAppUsers`, `updateAppUser` — all accessible without IC identity checks
-- Auto-seed admin `APA_Arun` if no users exist on first call
+### 1. Install packages
+- `xlsx` (SheetJS) for Excel generation
+- `docx` for Word .docx generation
+- `file-saver` for triggering browser download
 
-### Frontend (React + Tailwind)
-- **Auth**: localStorage primary + backend canister sync. On new device with empty localStorage, pull users from canister on load. Login never blocked by backend availability.
-- **RBAC**: Admin, Manager, Reviewer, Auditor. Reviewer add-only on clients/sites. Admin manages users.
-- **Dashboard**: Bar + donut charts. HDFC Bank and IDBI Bank seeded. Multi-site per client.
-- **Clients & Sites**: Branch Name, Code, Address, City, State, Type, Scheduled Audit Date, Auditor (1:1), Reviewer, Manager.
-- **Templates**: Admin/Manager create reusable templates. Sections → Questions (Radio/Dropdown). Per-question: always-required Remarks field, optional image upload toggle + mandatory toggle.
-- **Questionnaire Fill**: Collapsible sections. Per-question: answer input + Remarks (required) + conditional image upload. Section-level: Power Supply Details table (3in3out / 3in1out / 1in1out, non-mandatory). Critical Observations panel (add/remove rows, each with Remarks + Recommendations + mandatory image upload). Last section: Photographs (all uploaded photos grouped by section with remarks captions).
-- **Task List**: Status summary cards. Searchable table. Workflow: Auditor → Submit → Reviewer → Submit → Manager → Approve/Send Back.
-- **Floating footer buttons**: `position: fixed; bottom: 0`. Use `padding-bottom: env(safe-area-inset-bottom, 16px)` for iOS. Min height 56px. Touch target ≥ 48px. Full-width on mobile.
-- **Auto-save**: 5-second debounced write to localStorage. Never makes network call. Backup sync to canister happens on manual Save/Submit only.
-- **Logo**: `/assets/uploads/image-019d3a59-4137-76fd-9587-931d91b77fab-1.png` in header (white bg container) and login page.
-- **Branding**: Grey-green (`#1a2420` header, `#4a7c59` accents), white, industrial Tailwind styling.
-- **Admin credentials**: `APA_Arun` / `SWiSH_SafeArun@21`. No password hint on login page.
-- **Temporary Admin**: 24-hour elevation, badge shown, no countdown timer.
+### 2. Excel export (`exportExcel.ts`)
+- One worksheet named after the site
+- Columns: S/No | Section | Question | Observation (Answer) | Remarks
+- Rows: one per question across all sections
+- Below questions: Critical Observations rows (Section | "Critical Observation" | Remarks | Recommendations)
+- Power Supply Details rows (Section | "Power Supply" | type + field values)
+- Header row styled with bold olive-green background
+
+### 3. Word export (`exportWord.ts`)
+Generate a .docx with three visual sections matching the sample report:
+
+**Cover Page:**
+- Title: "Electrical Safety Audit Report of"
+- Client name (large bold)
+- Branch Name + State (large bold)
+- Branch Code + Branch Type in a bordered table row
+- "Executed By:" section with "M/s APlus Automations" and www.aplusautomations.com
+- Audit date
+- Note: logos cannot be embedded without binary assets; use text placeholders for logo areas
+
+**Report Pages (per section):**
+- Header row: client name | APlus Automations | SWiSH SAFE-T (text-based, 3-column table)
+- Section heading: "N. Section Name" (large bold, olive color #7a9e3b)
+- Table: S/No | Parameters need to be checked | Observation | Remarks
+  - Header row: olive-green shading (#7a9e3b), white bold text
+  - Alternating white rows
+- Footer: "Electrical Safety Audit Report" left | "Page X" right
+
+**Photo Pages (per section that has images):**
+- Same 3-column header
+- Section label in a full-width grey shaded bar (bold centered)
+- 3 images per row, each resized to ~180x150px, with "Image N" label above and remarks caption below
+- Images are base64 data URLs stored in localStorage — extract and embed
+
+**Critical Observations (per section):**
+- After each section table, if observations exist, render a sub-table: Remarks | Recommendations
+- Observation images grouped into the photo section
+
+### 4. QuestionnairePage changes
+- Import and call exportExcel / exportWord utilities
+- Show "Export Excel" and "Export Word" buttons in the footer action area
+- Only visible when: role is admin/manager/reviewer AND audit.status is one of Submitted/Reviewed/Completed/UnderReview
+- Buttons use Download icon from lucide-react
+- Word export may take a moment — show loading state on button
