@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
+import { getFileUrl, uploadFile } from "../lib/blob-storage";
 import {
   type Audit,
   type AuditAnswers,
@@ -552,29 +553,35 @@ export default function QuestionnairePage({
     ) => {
       if (!audit) return;
       setSaving(true);
-      const combined = {
-        ...currentAnswers,
-        ...Object.fromEntries(
-          Object.entries(currentObs).map(([secId, rows]) => [
-            `__obs_${secId}`,
-            rows,
-          ]),
-        ),
-        ...Object.fromEntries(
-          Object.entries(currentPs)
-            .filter(([, ps]) => ps.type)
-            .map(([secId, ps]) => [`__ps_${secId}`, ps]),
-        ),
-      };
-      const answersJson = JSON.stringify(combined);
-      // Pure synchronous localStorage write — guaranteed to work with no signal
-      // This is the auto-save draft key used for recovery
-      localStorage.setItem(`audit_draft_${siteId}`, answersJson);
-      auditStore.update(audit.id, {
-        answersJson,
-        lastSavedAt: Date.now(),
-      });
-      setTimeout(() => setSaving(false), 500);
+      try {
+        const combined = {
+          ...currentAnswers,
+          ...Object.fromEntries(
+            Object.entries(currentObs).map(([secId, rows]) => [
+              `__obs_${secId}`,
+              rows,
+            ]),
+          ),
+          ...Object.fromEntries(
+            Object.entries(currentPs)
+              .filter(([, ps]) => ps.type)
+              .map(([secId, ps]) => [`__ps_${secId}`, ps]),
+          ),
+        };
+        const answersJson = JSON.stringify(combined);
+        // Pure synchronous localStorage write — guaranteed to work with no signal
+        try {
+          localStorage.setItem(`audit_draft_${siteId}`, answersJson);
+        } catch {
+          // Storage quota exceeded — skip draft cache but continue saving in memory
+        }
+        auditStore.update(audit.id, {
+          answersJson,
+          lastSavedAt: Date.now(),
+        });
+      } finally {
+        setTimeout(() => setSaving(false), 500);
+      }
     },
     [audit, siteId],
   );
@@ -625,19 +632,17 @@ export default function QuestionnairePage({
   const handleFileUpload = (qId: string, files: FileList | null) => {
     if (!files || !files.length) return;
     const existing = getOrEmpty(qId).images;
-    const readers: Promise<string>[] = [];
+    const uploads: Promise<string>[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      readers.push(
-        new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.readAsDataURL(file);
-        }),
+      uploads.push(
+        uploadFile(file)
+          .then(({ id }) => id)
+          .catch(() => ""),
       );
     }
-    Promise.all(readers).then((bases) => {
-      const newImages = [...existing, ...bases];
+    Promise.all(uploads).then((ids) => {
+      const newImages = [...existing, ...ids.filter(Boolean)];
       const next: AuditAnswers = {
         ...answers,
         [qId]: { ...getOrEmpty(qId), images: newImages },
@@ -740,22 +745,22 @@ export default function QuestionnairePage({
     files: FileList | null,
   ) => {
     if (!files || !files.length) return;
-    const readers: Promise<string>[] = [];
+    const uploads: Promise<string>[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      readers.push(
-        new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.readAsDataURL(file);
-        }),
+      uploads.push(
+        uploadFile(file)
+          .then(({ id }) => id)
+          .catch(() => ""),
       );
     }
-    Promise.all(readers).then((bases) => {
+    Promise.all(uploads).then((ids) => {
       persistObs(
         secId,
         getObservations(secId).map((o) =>
-          o.id === obsId ? { ...o, images: [...o.images, ...bases] } : o,
+          o.id === obsId
+            ? { ...o, images: [...o.images, ...ids.filter(Boolean)] }
+            : o,
         ),
       );
       setObsErrors((prev) => {
@@ -1228,7 +1233,7 @@ export default function QuestionnairePage({
                                     className="relative group"
                                   >
                                     <img
-                                      src={src}
+                                      src={getFileUrl(src)}
                                       alt={`Upload ${i + 1}`}
                                       className="h-20 w-20 object-cover rounded border border-[#3a4f44]"
                                     />
@@ -1417,7 +1422,7 @@ export default function QuestionnairePage({
                                           className="relative group"
                                         >
                                           <img
-                                            src={src}
+                                            src={getFileUrl(src)}
                                             alt={`Obs img ${ii + 1}`}
                                             className="h-16 w-16 object-cover rounded border border-gray-200"
                                           />
@@ -1574,7 +1579,7 @@ export default function QuestionnairePage({
                             className="border border-[#2a3a2a] rounded-lg overflow-hidden bg-[#0d1912] w-44 flex-shrink-0"
                           >
                             <img
-                              src={ph.src}
+                              src={getFileUrl(ph.src)}
                               alt={ph.caption}
                               className="w-full h-36 object-cover"
                             />

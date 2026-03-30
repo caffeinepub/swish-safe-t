@@ -46,6 +46,7 @@ import {
   Plus,
   Trash2,
   User,
+  Users,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -145,6 +146,8 @@ export default function SitesPage({
 }: Props) {
   const role = session.role;
   const canEditDelete = role === "admin" || role === "manager";
+  const canManageAssignments =
+    role === "admin" || role === "manager" || role === "reviewer";
   const { actor, isFetching } = useActor();
   const [backendUsers, setBackendUsers] = useState<StoredUser[]>([]);
   const templates = templateStore.getAll();
@@ -172,6 +175,15 @@ export default function SitesPage({
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Site | null>(null);
 
+  // Manage Assignments state
+  const [assignSite, setAssignSite] = useState<Site | null>(null);
+  const [assignForm, setAssignForm] = useState({
+    auditorId: "",
+    reviewerId: "",
+    managerId: "",
+  });
+  const [assignSaving, setAssignSaving] = useState(false);
+
   const reload = () => setSites(siteStore.getByClient(clientId));
   const setField = (f: keyof SiteForm, v: string) =>
     setForm((p) => ({ ...p, [f]: v }));
@@ -197,6 +209,58 @@ export default function SitesPage({
       templateId: s.templateId || "",
     });
     setShowForm(true);
+  };
+
+  const openAssign = (s: Site) => {
+    setAssignSite(s);
+    setAssignForm({
+      auditorId: s.auditorId || s.assignedAuditorId || "",
+      reviewerId: s.reviewerId || "",
+      managerId: s.managerId || "",
+    });
+  };
+
+  const handleSaveAssignments = () => {
+    if (!assignSite) return;
+    if (role === "reviewer" && !assignForm.auditorId) {
+      toast.error("Please select an auditor");
+      return;
+    }
+    setAssignSaving(true);
+    try {
+      const auditor = users.find((u) => u.id === assignForm.auditorId);
+      const reviewer = users.find((u) => u.id === assignForm.reviewerId);
+      const manager = users.find((u) => u.id === assignForm.managerId);
+
+      const updates: Partial<Site> = {};
+
+      // Reviewer can only change Auditor
+      if (role === "reviewer" || role === "manager" || role === "admin") {
+        updates.auditorId = assignForm.auditorId;
+        updates.auditorName = auditor?.fullName ?? "";
+      }
+      // Manager can also change Reviewer
+      if (role === "manager" || role === "admin") {
+        updates.reviewerId =
+          assignForm.reviewerId === "none" ? "" : assignForm.reviewerId;
+        updates.reviewerName =
+          assignForm.reviewerId === "none" ? "" : (reviewer?.fullName ?? "");
+      }
+      // Admin can also change Manager
+      if (role === "admin") {
+        updates.managerId =
+          assignForm.managerId === "none" ? "" : assignForm.managerId;
+        updates.managerName =
+          assignForm.managerId === "none" ? "" : (manager?.fullName ?? "");
+      }
+
+      siteStore.update(assignSite.id, updates);
+      toast.success("Assignments updated");
+      setAssignSite(null);
+      reload();
+    } finally {
+      setAssignSaving(false);
+    }
   };
 
   const handleSave = () => {
@@ -323,7 +387,7 @@ export default function SitesPage({
                   <MapPin className="h-10 w-10 mx-auto mb-3 text-gray-700" />
                   <p className="text-gray-400 text-sm">No branch sites yet.</p>
                   <p className="text-gray-600 text-xs mt-1">
-                    Click “Add Site” to register a branch.
+                    Click \u201cAdd Site\u201d to register a branch.
                   </p>
                 </div>
               ) : (
@@ -457,26 +521,40 @@ export default function SitesPage({
                               )}
                             </TableCell>
                             <TableCell className="px-3">
-                              {canEditDelete && (
-                                <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-1">
+                                {canManageAssignments && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-7 w-7 text-gray-400 hover:text-white"
-                                    onClick={() => openEdit(s)}
+                                    className="h-7 w-7 text-[#6aab7e] hover:text-[#8aad3a] hover:bg-[#2d3f38]"
+                                    onClick={() => openAssign(s)}
+                                    title="Manage Assignments"
+                                    data-ocid="sites.open_modal_button"
                                   >
-                                    <Pencil className="h-3.5 w-3.5" />
+                                    <Users className="h-3.5 w-3.5" />
                                   </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-red-500 hover:text-red-400"
-                                    onClick={() => setDeleteTarget(s)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-                              )}
+                                )}
+                                {canEditDelete && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-gray-400 hover:text-white"
+                                      onClick={() => openEdit(s)}
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-red-500 hover:text-red-400"
+                                      onClick={() => setDeleteTarget(s)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -772,6 +850,181 @@ export default function SitesPage({
               data-ocid="sites.submit_button"
             >
               {editSite ? "Update Site" : "Add Site"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Assignments Dialog */}
+      <Dialog
+        open={!!assignSite}
+        onOpenChange={(open) => !open && setAssignSite(null)}
+      >
+        <DialogContent className="bg-[#1a2420] border-[#3a4f44] max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Users className="h-4 w-4 text-[#8aad3a]" />
+              Manage Assignments
+            </DialogTitle>
+            {assignSite && (
+              <p className="text-sm text-gray-400 mt-1">
+                {assignSite.branchName || assignSite.siteName}
+              </p>
+            )}
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-md bg-[#111c18] border border-[#2a3d33] p-3">
+              <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold mb-2">
+                {role === "reviewer"
+                  ? "Reviewer permissions: Auditor only"
+                  : role === "manager"
+                    ? "Manager permissions: Auditor & Reviewer"
+                    : "Admin permissions: Auditor, Reviewer & Manager"}
+              </p>
+            </div>
+
+            {/* Auditor — all roles can change */}
+            <div className="space-y-1.5">
+              <Label className="text-gray-300 text-xs flex items-center gap-1.5">
+                <User className="h-3 w-3 text-[#6aab7e]" />
+                Auditor
+              </Label>
+              <Select
+                value={assignForm.auditorId || "none"}
+                onValueChange={(v) =>
+                  setAssignForm((p) => ({
+                    ...p,
+                    auditorId: v === "none" ? "" : v,
+                  }))
+                }
+              >
+                <SelectTrigger
+                  className="bg-[#111c18] border-[#3a4f44] text-white h-9 text-sm"
+                  data-ocid="sites.select"
+                >
+                  <SelectValue placeholder="Select auditor" />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a2420] border-[#3a4f44]">
+                  <SelectItem
+                    value="none"
+                    className="text-gray-500 focus:bg-[#2d3f38] text-sm"
+                  >
+                    Unassigned
+                  </SelectItem>
+                  {auditors.map((u) => (
+                    <SelectItem
+                      key={u.id}
+                      value={u.id}
+                      className="text-white focus:bg-[#2d3f38] text-sm"
+                    >
+                      {u.fullName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Reviewer — manager and admin only */}
+            {(role === "manager" || role === "admin") && (
+              <div className="space-y-1.5">
+                <Label className="text-gray-300 text-xs flex items-center gap-1.5">
+                  <User className="h-3 w-3 text-purple-400" />
+                  Reviewer
+                </Label>
+                <Select
+                  value={assignForm.reviewerId || "none"}
+                  onValueChange={(v) =>
+                    setAssignForm((p) => ({
+                      ...p,
+                      reviewerId: v === "none" ? "" : v,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="bg-[#111c18] border-[#3a4f44] text-white h-9 text-sm">
+                    <SelectValue placeholder="Select reviewer" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1a2420] border-[#3a4f44]">
+                    <SelectItem
+                      value="none"
+                      className="text-gray-500 focus:bg-[#2d3f38] text-sm"
+                    >
+                      Not assigned
+                    </SelectItem>
+                    {reviewers.map((u) => (
+                      <SelectItem
+                        key={u.id}
+                        value={u.id}
+                        className="text-white focus:bg-[#2d3f38] text-sm"
+                      >
+                        {u.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Manager — admin only */}
+            {role === "admin" && (
+              <div className="space-y-1.5">
+                <Label className="text-gray-300 text-xs flex items-center gap-1.5">
+                  <User className="h-3 w-3 text-blue-400" />
+                  Manager
+                </Label>
+                <Select
+                  value={assignForm.managerId || "none"}
+                  onValueChange={(v) =>
+                    setAssignForm((p) => ({
+                      ...p,
+                      managerId: v === "none" ? "" : v,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="bg-[#111c18] border-[#3a4f44] text-white h-9 text-sm">
+                    <SelectValue placeholder="Select manager" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1a2420] border-[#3a4f44]">
+                    <SelectItem
+                      value="none"
+                      className="text-gray-500 focus:bg-[#2d3f38] text-sm"
+                    >
+                      Not assigned
+                    </SelectItem>
+                    {managers.map((u) => (
+                      <SelectItem
+                        key={u.id}
+                        value={u.id}
+                        className="text-white focus:bg-[#2d3f38] text-sm"
+                      >
+                        {u.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setAssignSite(null)}
+              className="border-[#3a4f44] text-gray-300 hover:bg-[#2a3d33]"
+              data-ocid="sites.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveAssignments}
+              disabled={assignSaving}
+              className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
+              data-ocid="sites.save_button"
+            >
+              {assignSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Users className="h-4 w-4" />
+              )}
+              Save Assignments
             </Button>
           </DialogFooter>
         </DialogContent>

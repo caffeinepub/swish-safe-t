@@ -1,5 +1,4 @@
 import Map "mo:core/Map";
-import Text "mo:core/Text";
 import Iter "mo:core/Iter";
 import Time "mo:core/Time";
 import Nat "mo:core/Nat";
@@ -8,14 +7,11 @@ import Order "mo:core/Order";
 import List "mo:core/List";
 import Runtime "mo:core/Runtime";
 import Array "mo:core/Array";
+import Text "mo:core/Text";
 import Principal "mo:core/Principal";
 import MixinStorage "blob-storage/Mixin";
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
-
-
-// Automatic migration handling
-
 
 actor {
   // Storage
@@ -130,7 +126,6 @@ actor {
     #missingAnswers : [Text];
   };
 
-
   // === APP USER MANAGEMENT (username/password auth, no IC identity needed for login) ===
   public type AppUser = {
     username : Text;
@@ -160,14 +155,14 @@ actor {
   let questions = Map.empty<Text, Question>();
   let reports = Map.empty<Text, Report>();
   // Stable storage for appUsers — survives canister upgrades
-  stable var stableAppUsers : [(Text, AppUser)] = [];
+  var stableAppUsers : [(Text, AppUser)] = [];
   let appUsers = Map.empty<Text, AppUser>(); // populated in postupgrade
 
   // The setup passphrase for claiming admin role
   let ADMIN_SETUP_CODE : Text = "SWISH-SETUP-2026";
 
   // Track if bootstrap has been used
-  stable var bootstrapUsed : Bool = false;
+  var bootstrapUsed : Bool = false;
 
   // Internal Structures
   type AnswerKey = {
