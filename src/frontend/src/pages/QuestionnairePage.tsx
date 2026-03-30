@@ -93,13 +93,13 @@ const STATUS_CONFIG: Record<Audit["status"], { label: string; cls: string }> = {
     label: "Submitted",
     cls: "bg-orange-900/40 text-orange-300 border-orange-700/50",
   },
-  PendingReReview: {
-    label: "Pending Re-Review",
-    cls: "bg-yellow-900/40 text-yellow-300 border-yellow-700/50",
+  PendingApproval: {
+    label: "Pending Approval",
+    cls: "bg-amber-900/40 text-amber-300 border-amber-700/50",
   },
-  Reviewed: {
-    label: "Reviewed",
-    cls: "bg-purple-900/40 text-purple-300 border-purple-700/50",
+  ReturnedForCorrection: {
+    label: "Returned for Correction",
+    cls: "bg-rose-900/40 text-rose-300 border-rose-700/50",
   },
   Completed: {
     label: "Completed",
@@ -845,14 +845,17 @@ export default function QuestionnairePage({
     setSubmitting(true);
     saveAnswers(answers, sectionObservations, sectionPowerSupply);
     let newStatus: Audit["status"] = "Submitted";
-    if (role === "reviewer") newStatus = "Reviewed";
+    if (role === "reviewer") newStatus = "PendingApproval";
+    else if (role === "manager" || role === "admin") newStatus = "Completed";
     auditStore.update(audit.id, { status: newStatus, lastSavedAt: Date.now() });
     setAudit(auditStore.getById(audit.id));
     setSubmitting(false);
     toast.success(
       role === "reviewer"
-        ? "Submitted for manager review"
-        : "Audit submitted for review",
+        ? "Submitted for manager approval"
+        : role === "manager" || role === "admin"
+          ? "Audit approved and completed"
+          : "Audit submitted for review",
     );
   };
 
@@ -866,17 +869,18 @@ export default function QuestionnairePage({
     toast.success("Audit approved and marked Completed");
   };
 
-  const handleSendBack = () => {
-    if (!audit) return;
+  const handleReject = () => {
+    if (!audit || !sendBackComment.trim()) return;
     auditStore.update(audit.id, {
-      status: "PendingReReview",
+      status: "ReturnedForCorrection",
+      rejectionNote: sendBackComment,
       reviewComment: sendBackComment,
       lastSavedAt: Date.now(),
     });
     setAudit(auditStore.getById(audit.id));
     setShowSendBackDialog(false);
     setSendBackComment("");
-    toast.success("Sent back for re-review");
+    toast.success("Report returned to reviewer for correction");
   };
 
   const handleExportExcel = () => {
@@ -909,12 +913,12 @@ export default function QuestionnairePage({
   };
 
   const isReadOnly =
-    (role === "auditor" &&
+    (role === "auditor" && !!audit && audit.status !== "Draft") ||
+    (role === "reviewer" &&
       !!audit &&
-      audit.status !== "Draft" &&
-      audit.status !== "PendingReReview") ||
-    (role === "reviewer" && !!audit && audit.status === "Completed") ||
-    (audit?.status === "Completed" && role !== "admin" && role !== "manager");
+      audit.status !== "Submitted" &&
+      audit.status !== "ReturnedForCorrection") ||
+    (audit?.status === "Completed" && role !== "admin");
 
   const canEdit = !isReadOnly;
   const canAudit = role === "auditor" && canEdit;
@@ -922,17 +926,20 @@ export default function QuestionnairePage({
     (role === "reviewer" || role === "manager" || role === "admin") &&
     !!audit &&
     (audit.status === "Submitted" ||
-      audit.status === "PendingReReview" ||
-      audit.status === "Reviewed");
+      audit.status === "ReturnedForCorrection" ||
+      audit.status === "PendingApproval");
   const canApprove =
     (role === "manager" || role === "admin") &&
     !!audit &&
-    audit.status === "Reviewed";
+    audit.status === "PendingApproval";
   const canExport =
     !!audit &&
-    ["Submitted", "Reviewed", "PendingReReview", "Completed"].includes(
-      audit.status,
-    ) &&
+    [
+      "Submitted",
+      "PendingApproval",
+      "ReturnedForCorrection",
+      "Completed",
+    ].includes(audit.status) &&
     ["admin", "manager", "reviewer"].includes(role);
 
   if (!site) {
@@ -1053,13 +1060,15 @@ export default function QuestionnairePage({
               </p>
             </div>
           </div>
-          {audit?.reviewComment && audit.status === "PendingReReview" && (
-            <div className="mt-2 bg-yellow-900/20 border border-yellow-700/40 rounded-lg px-3 py-2">
-              <p className="text-xs text-yellow-300">
-                <strong>Reviewer comment:</strong> {audit.reviewComment}
-              </p>
-            </div>
-          )}
+          {(audit?.rejectionNote || audit?.reviewComment) &&
+            audit.status === "ReturnedForCorrection" && (
+              <div className="mt-2 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2">
+                <p className="text-xs text-amber-300">
+                  <strong>Manager rejection note:</strong>{" "}
+                  {audit.rejectionNote || audit.reviewComment}
+                </p>
+              </div>
+            )}
         </header>
 
         <main className="flex-1 overflow-auto px-4 py-5 pb-32 md:pb-24">
@@ -1639,13 +1648,26 @@ export default function QuestionnairePage({
           )}
           {canReview &&
             role === "reviewer" &&
-            audit?.status === "Submitted" && (
+            (audit?.status === "Submitted" ||
+              audit?.status === "ReturnedForCorrection") && (
               <Button
                 data-ocid="questionnaire.submit_button"
                 onClick={validateAndSubmit}
                 className="bg-purple-700 hover:bg-purple-800 text-white gap-1.5"
               >
-                <CheckCircle2 className="h-4 w-4" /> Submit for Review
+                <CheckCircle2 className="h-4 w-4" /> Submit for Approval
+              </Button>
+            )}
+          {canReview &&
+            (role === "manager" || role === "admin") &&
+            audit?.status !== "PendingApproval" &&
+            audit?.status !== "Completed" && (
+              <Button
+                data-ocid="questionnaire.submit_button"
+                onClick={validateAndSubmit}
+                className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
+              >
+                <CheckCircle2 className="h-4 w-4" /> Submit &amp; Complete
               </Button>
             )}
           {canApprove && (
@@ -1654,16 +1676,16 @@ export default function QuestionnairePage({
                 data-ocid="questionnaire.secondary_button"
                 onClick={() => setShowSendBackDialog(true)}
                 variant="outline"
-                className="border-yellow-700 text-yellow-300 hover:bg-yellow-900/20"
+                className="border-rose-700 text-rose-300 hover:bg-rose-900/20"
               >
-                Send Back
+                Reject
               </Button>
               <Button
                 data-ocid="questionnaire.confirm_button"
                 onClick={handleApprove}
                 className="bg-green-700 hover:bg-green-800 text-white gap-1.5"
               >
-                <CheckCircle2 className="h-4 w-4" /> Approve
+                <CheckCircle2 className="h-4 w-4" /> Approve &amp; Complete
               </Button>
             </div>
           )}
@@ -1712,16 +1734,16 @@ export default function QuestionnairePage({
           className="bg-[#1a2420] border-[#3a4f44]"
         >
           <DialogHeader>
-            <DialogTitle className="text-white">
-              Send Back for Re-Review
-            </DialogTitle>
+            <DialogTitle className="text-white">Reject Report</DialogTitle>
           </DialogHeader>
           <div className="py-2">
-            <Label className="text-gray-300 text-sm">Comment (optional)</Label>
+            <Label className="text-gray-300 text-sm">
+              Rejection Note <span className="text-rose-400">*</span>
+            </Label>
             <Textarea
               value={sendBackComment}
               onChange={(e) => setSendBackComment(e.target.value)}
-              placeholder="Explain what needs to be fixed..."
+              placeholder="Explain why the report is being rejected..."
               className="mt-2 bg-[#111c18] border-[#3a4f44] text-white resize-none"
             />
           </div>
@@ -1736,10 +1758,11 @@ export default function QuestionnairePage({
             </Button>
             <Button
               data-ocid="questionnaire.confirm_button"
-              onClick={handleSendBack}
-              className="bg-yellow-700 hover:bg-yellow-800 text-white"
+              onClick={handleReject}
+              disabled={!sendBackComment.trim()}
+              className="bg-rose-700 hover:bg-rose-800 text-white"
             >
-              Send Back
+              Reject Report
             </Button>
           </DialogFooter>
         </DialogContent>

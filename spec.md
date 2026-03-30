@@ -1,72 +1,54 @@
-# SWiSH SAFE-T — Export Feature
+# SWiSH SAFE-T
 
 ## Current State
-The app is a full-featured electrical safety audit tool (localStorage-based). QuestionnairePage.tsx handles the full audit form with answers, remarks, images, critical observations, and power supply details. There is no export functionality yet. The app has no xlsx or docx libraries installed.
+The app has a 4-stage workflow: Draft → Submitted → Reviewed/PendingReReview → Completed.
+- Auditor can submit (Draft → Submitted)
+- Reviewer can submit (Submitted/PendingReReview → Reviewed or Completed)
+- Manager can approve (Reviewed → Completed) or send back (Reviewed → PendingReReview)
+- Status type: `"Draft" | "Submitted" | "Reviewed" | "PendingReReview" | "Completed"`
+- StatusBadge maps these statuses with display labels
+- QuestionnairePage has `validateAndSubmit`, edit access guards, and submit button rendering
+- TaskListPage shows status summary cards with current status counts
 
 ## Requested Changes (Diff)
 
 ### Add
-- `xlsx` npm package for Excel export
-- `docx` npm package for Word export
-- `src/frontend/src/lib/exportExcel.ts` — utility to generate Excel file from audit data
-- `src/frontend/src/lib/exportWord.ts` — utility to generate Word/Doc report from audit data
-- Export buttons (Excel + Word) on the QuestionnairePage, visible only to Reviewer/Manager/Admin when audit status is Submitted, Under Review, Reviewed, or Completed
+- New status `"PendingApproval"` — after Reviewer submits, moves to Manager queue
+- New status `"ReturnedForCorrection"` — Manager rejects, sent back to Reviewer with note
+- Manager "Reject" button in QuestionnairePage when status is `PendingApproval`; requires a mandatory rejection comment modal
+- `rejectionNote` field on Audit object to store Manager's rejection comment
+- Status badge styles and display labels for `PendingApproval` and `ReturnedForCorrection`
+- Status summary cards on TaskListPage for `PendingApproval` and `ReturnedForCorrection`
+- Rejection note shown to Reviewer in audit view when status is `ReturnedForCorrection`
 
 ### Modify
-- `src/frontend/package.json` — add `xlsx` and `docx` dependencies
-- `src/frontend/src/pages/QuestionnairePage.tsx` — add Export Excel and Export Word buttons to the action bar area (near Submit/Update buttons), role and status gated
+- Audit status type: add `"PendingApproval"` and `"ReturnedForCorrection"`
+- Auditor submit → `"Submitted"` (unchanged, Reviewer's queue)
+- Reviewer submit flow: `"Submitted"` or `"ReturnedForCorrection"` → `"PendingApproval"` (not directly to Completed or Reviewed)
+- Manager submit/approve: `"PendingApproval"` → `"Completed"`
+- Admin submit: → `"Completed"` immediately regardless of current status
+- Edit access rules:
+  - Auditor: editable only on `Draft`; read-only after
+  - Reviewer: editable on `Submitted` or `ReturnedForCorrection`; read-only on `PendingApproval` or `Completed`
+  - Manager: can submit/approve/reject when status is `PendingApproval`
+  - Admin: always editable
+- Submit button label and visibility per role and status
+- Remove old `Reviewed` and `PendingReReview` statuses (replace with new workflow)
+- TaskListPage status cards updated to reflect new statuses
 
 ### Remove
-- Nothing
+- Old `"Reviewed"` status and `"PendingReReview"` status (superseded by `PendingApproval` and `ReturnedForCorrection`)
+- Old Manager "Send Back" logic (replaced by Reject with mandatory note)
 
 ## Implementation Plan
-
-### 1. Install packages
-- `xlsx` (SheetJS) for Excel generation
-- `docx` for Word .docx generation
-- `file-saver` for triggering browser download
-
-### 2. Excel export (`exportExcel.ts`)
-- One worksheet named after the site
-- Columns: S/No | Section | Question | Observation (Answer) | Remarks
-- Rows: one per question across all sections
-- Below questions: Critical Observations rows (Section | "Critical Observation" | Remarks | Recommendations)
-- Power Supply Details rows (Section | "Power Supply" | type + field values)
-- Header row styled with bold olive-green background
-
-### 3. Word export (`exportWord.ts`)
-Generate a .docx with three visual sections matching the sample report:
-
-**Cover Page:**
-- Title: "Electrical Safety Audit Report of"
-- Client name (large bold)
-- Branch Name + State (large bold)
-- Branch Code + Branch Type in a bordered table row
-- "Executed By:" section with "M/s APlus Automations" and www.aplusautomations.com
-- Audit date
-- Note: logos cannot be embedded without binary assets; use text placeholders for logo areas
-
-**Report Pages (per section):**
-- Header row: client name | APlus Automations | SWiSH SAFE-T (text-based, 3-column table)
-- Section heading: "N. Section Name" (large bold, olive color #7a9e3b)
-- Table: S/No | Parameters need to be checked | Observation | Remarks
-  - Header row: olive-green shading (#7a9e3b), white bold text
-  - Alternating white rows
-- Footer: "Electrical Safety Audit Report" left | "Page X" right
-
-**Photo Pages (per section that has images):**
-- Same 3-column header
-- Section label in a full-width grey shaded bar (bold centered)
-- 3 images per row, each resized to ~180x150px, with "Image N" label above and remarks caption below
-- Images are base64 data URLs stored in localStorage — extract and embed
-
-**Critical Observations (per section):**
-- After each section table, if observations exist, render a sub-table: Remarks | Recommendations
-- Observation images grouped into the photo section
-
-### 4. QuestionnairePage changes
-- Import and call exportExcel / exportWord utilities
-- Show "Export Excel" and "Export Word" buttons in the footer action area
-- Only visible when: role is admin/manager/reviewer AND audit.status is one of Submitted/Reviewed/Completed/UnderReview
-- Buttons use Download icon from lucide-react
-- Word export may take a moment — show loading state on button
+1. Update `Audit` type in `dataStore.ts`: add `PendingApproval`, `ReturnedForCorrection`, remove `Reviewed`, `PendingReReview`; add `rejectionNote?: string` field
+2. Update `StatusBadge.tsx`: add styles for new statuses with appropriate colors
+3. Update `QuestionnairePage.tsx`:
+   - Fix `validateAndSubmit` to route Reviewer submit → `PendingApproval`
+   - Add Manager approve button → `Completed`
+   - Add Manager reject button → opens modal for rejection note → saves note + status `ReturnedForCorrection`
+   - Admin submit → `Completed` always
+   - Fix `isReadOnly` logic for new statuses
+   - Show rejection note banner when status is `ReturnedForCorrection`
+   - Fix `STATUS_CONFIG` map for new statuses
+4. Update `TaskListPage.tsx`: update status summary cards and badge map for new statuses

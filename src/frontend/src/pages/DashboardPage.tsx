@@ -131,7 +131,7 @@ export default function DashboardPage({ session, onNavigate }: Props) {
     (a) =>
       a.status === "Draft" ||
       a.status === "Submitted" ||
-      a.status === "PendingReReview",
+      a.status === "ReturnedForCorrection",
   );
 
   const monthlyData = useMemo(() => {
@@ -574,7 +574,7 @@ export default function DashboardPage({ session, onNavigate }: Props) {
                           (a) =>
                             a.status === "Draft" ||
                             a.status === "Submitted" ||
-                            a.status === "PendingReReview",
+                            a.status === "ReturnedForCorrection",
                         );
                         return (
                           <tr

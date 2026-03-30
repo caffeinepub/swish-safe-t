@@ -47,13 +47,13 @@ const STATUS_BADGE: Record<AuditStatus, { label: string; cls: string }> = {
     label: "PENDING FOR REVIEW",
     cls: "bg-orange-900/40 text-orange-300 border-orange-700/50",
   },
-  PendingReReview: {
-    label: "PENDING FOR REVIEW",
-    cls: "bg-orange-900/40 text-orange-300 border-orange-700/50",
+  PendingApproval: {
+    label: "PENDING APPROVAL",
+    cls: "bg-amber-900/40 text-amber-300 border-amber-700/50",
   },
-  Reviewed: {
-    label: "UNDER REVIEW",
-    cls: "bg-purple-900/40 text-purple-300 border-purple-700/50",
+  ReturnedForCorrection: {
+    label: "RETURNED FOR CORRECTION",
+    cls: "bg-rose-900/40 text-rose-300 border-rose-700/50",
   },
   Completed: {
     label: "COMPLETED",
@@ -101,8 +101,8 @@ export default function TaskListPage({ session, onNavigate }: Props) {
       const st = getDisplayStatus(audit);
       if (st === "Unstarted") unstarted++;
       else if (st === "Draft") inProgress++;
-      else if (st === "Submitted" || st === "PendingReReview") pendingReview++;
-      else if (st === "Reviewed") underReview++;
+      else if (st === "Submitted") pendingReview++;
+      else if (st === "PendingApproval") underReview++;
       else if (st === "Completed") completed++;
     }
     return { unstarted, inProgress, pendingReview, underReview, completed };
@@ -156,12 +156,12 @@ export default function TaskListPage({ session, onNavigate }: Props) {
       border: "border-teal-800/40",
     },
     {
-      label: "Under Review",
+      label: "Pending Approval",
       count: counts.underReview,
       icon: <AlertTriangle className="h-6 w-6" />,
-      bg: "bg-purple-900/30",
-      col: "text-purple-300",
-      border: "border-purple-800/40",
+      bg: "bg-amber-900/30",
+      col: "text-amber-300",
+      border: "border-amber-800/40",
     },
     {
       label: "Completed Reports",

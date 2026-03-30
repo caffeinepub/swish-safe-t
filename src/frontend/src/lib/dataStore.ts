@@ -109,9 +109,15 @@ export interface Audit {
   clientId: string;
   auditorId: string;
   auditorName: string;
-  status: "Draft" | "Submitted" | "Reviewed" | "PendingReReview" | "Completed";
+  status:
+    | "Draft"
+    | "Submitted"
+    | "PendingApproval"
+    | "ReturnedForCorrection"
+    | "Completed";
   answersJson: string;
   reviewComment: string;
+  rejectionNote?: string;
   lastSavedAt: number;
   startedAt?: number;
 }
