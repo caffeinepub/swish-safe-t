@@ -35,7 +35,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
@@ -476,14 +476,17 @@ export default function QuestionnairePage({
   const sections: TemplateSection[] = template
     ? templateSectionStore.getByTemplate(template.id)
     : [];
-  const questionsBySec: Record<string, TemplateQuestion[]> = {};
-  for (const sec of sections) {
-    questionsBySec[sec.id] = templateQuestionStore
-      .getBySection(sec.id)
-      .filter(
-        (q) => q.questionType === "radio" || q.questionType === "dropdown",
-      );
-  }
+  const questionsBySec = useMemo(() => {
+    const map: Record<string, TemplateQuestion[]> = {};
+    for (const sec of sections) {
+      map[sec.id] = templateQuestionStore
+        .getBySection(sec.id)
+        .filter(
+          (q) => q.questionType === "radio" || q.questionType === "dropdown",
+        );
+    }
+    return map;
+  }, [sections]);
 
   const initParsed = (() => {
     const src = auditId
@@ -515,7 +518,7 @@ export default function QuestionnairePage({
     Record<string, PowerSupplyData>
   >(initParsed.powerSupply);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    () => new Set(sections.map((s) => s.id)),
+    () => new Set<string>(),
   );
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [photosExpanded, setPhotosExpanded] = useState(true);
@@ -1072,6 +1075,26 @@ export default function QuestionnairePage({
         </header>
 
         <main className="flex-1 overflow-auto px-4 py-5 pb-32 md:pb-24">
+          {/* Expand/Collapse all */}
+          <div className="flex justify-end mb-2 gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setExpandedSections(new Set(sections.map((s) => s.id)))
+              }
+              className="text-xs text-[#8aad3a] hover:underline"
+            >
+              Expand All
+            </button>
+            <span className="text-xs text-gray-600">|</span>
+            <button
+              type="button"
+              onClick={() => setExpandedSections(new Set())}
+              className="text-xs text-gray-400 hover:underline"
+            >
+              Collapse All
+            </button>
+          </div>
           {sections.map((sec, si) => {
             const qs = questionsBySec[sec.id] ?? [];
             const isExpanded = expandedSections.has(sec.id);
@@ -1242,6 +1265,7 @@ export default function QuestionnairePage({
                                     className="relative group"
                                   >
                                     <img
+                                      loading="lazy"
                                       src={getFileUrl(src)}
                                       alt={`Upload ${i + 1}`}
                                       className="h-20 w-20 object-cover rounded border border-[#3a4f44]"
@@ -1431,6 +1455,7 @@ export default function QuestionnairePage({
                                           className="relative group"
                                         >
                                           <img
+                                            loading="lazy"
                                             src={getFileUrl(src)}
                                             alt={`Obs img ${ii + 1}`}
                                             className="h-16 w-16 object-cover rounded border border-gray-200"
@@ -1588,6 +1613,7 @@ export default function QuestionnairePage({
                             className="border border-[#2a3a2a] rounded-lg overflow-hidden bg-[#0d1912] w-44 flex-shrink-0"
                           >
                             <img
+                              loading="lazy"
                               src={getFileUrl(ph.src)}
                               alt={ph.caption}
                               className="w-full h-36 object-cover"
