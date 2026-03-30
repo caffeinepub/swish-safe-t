@@ -29,7 +29,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
-  Loader2,
   Pencil,
   Plus,
   Shield,
@@ -41,15 +40,16 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
 import Sidebar from "../components/Sidebar";
-import { useActor } from "../hooks/useActor";
-import {
-  listUsersFromBackend,
-  upsertUserToBackend,
-} from "../lib/backendUserService";
 import { hashPassword } from "../lib/crypto";
 import type { Session } from "../lib/session";
-import type { StoredUser, UserRole } from "../lib/userStore";
-import { isTempAdmin } from "../lib/userStore";
+import {
+  type StoredUser,
+  type UserRole,
+  addUser,
+  getUsers,
+  isTempAdmin,
+  updateUser,
+} from "../lib/userStore";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -77,9 +77,7 @@ interface UserForm {
 }
 
 export default function AdminPage({ session, onNavigate }: Props) {
-  const { actor, isFetching } = useActor();
   const [users, setUsers] = useState<StoredUser[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<StoredUser | null>(null);
   const [form, setForm] = useState<UserForm>({
@@ -92,26 +90,11 @@ export default function AdminPage({ session, onNavigate }: Props) {
   const [saving, setSaving] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState<StoredUser | null>(null);
 
-  const reload = async (currentActor: typeof actor) => {
-    if (!currentActor) return;
-    setLoadingUsers(true);
-    try {
-      const list = await listUsersFromBackend(currentActor);
-      setUsers(list);
-    } finally {
-      setLoadingUsers(false);
-    }
-  };
+  const reload = () => setUsers(getUsers());
 
   useEffect(() => {
-    if (actor && !isFetching) {
-      setLoadingUsers(true);
-      listUsersFromBackend(actor)
-        .then(setUsers)
-        .catch(console.error)
-        .finally(() => setLoadingUsers(false));
-    }
-  }, [actor, isFetching]);
+    setUsers(getUsers());
+  }, []);
 
   const openAdd = () => {
     setEditingUser(null);
@@ -154,31 +137,25 @@ export default function AdminPage({ session, onNavigate }: Props) {
       toast.error("Username already exists");
       return;
     }
-    if (!actor) {
-      toast.error("Not connected to backend. Please wait.");
-      return;
-    }
     setSaving(true);
     try {
       if (editingUser) {
-        const updated: StoredUser = {
-          ...editingUser,
+        const updates: Partial<StoredUser> = {
           fullName: form.fullName.trim(),
           role: form.role,
           isEnabled: form.isEnabled,
         };
         if (form.password) {
-          updated.passwordHash = await hashPassword(
+          updates.passwordHash = await hashPassword(
             form.username,
             form.password,
           );
         }
-        await upsertUserToBackend(actor, updated);
+        updateUser(editingUser.id, updates);
         toast.success("User updated");
       } else {
         const hash = await hashPassword(form.username.trim(), form.password);
-        const newUser: StoredUser = {
-          id: form.username.trim(),
+        addUser({
           username: form.username.trim(),
           passwordHash: hash,
           fullName: form.fullName.trim(),
@@ -186,12 +163,11 @@ export default function AdminPage({ session, onNavigate }: Props) {
           originalRole: form.role,
           elevatedUntil: null,
           isEnabled: form.isEnabled,
-        };
-        await upsertUserToBackend(actor, newUser);
+        });
         toast.success("User added successfully");
       }
       setShowForm(false);
-      await reload(actor);
+      reload();
     } catch (err) {
       toast.error("Failed to save user. Please try again.");
       console.error(err);
@@ -200,7 +176,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
     }
   };
 
-  const handleToggleEnabled = async (u: StoredUser) => {
+  const handleToggleEnabled = (u: StoredUser) => {
     if (u.id === session.userId && u.isEnabled) {
       toast.error("You cannot disable your own account");
       return;
@@ -208,27 +184,22 @@ export default function AdminPage({ session, onNavigate }: Props) {
     if (u.isEnabled) {
       setConfirmDisable(u);
     } else {
-      if (!actor) return;
-      await upsertUserToBackend(actor, { ...u, isEnabled: true });
+      updateUser(u.id, { isEnabled: true });
       toast.success(`${u.fullName} enabled`);
-      await reload(actor);
+      reload();
     }
   };
 
-  const handleGrantTempAdmin = async (u: StoredUser) => {
-    if (!actor) return;
-    await upsertUserToBackend(actor, {
-      ...u,
+  const handleGrantTempAdmin = (u: StoredUser) => {
+    updateUser(u.id, {
       role: "admin",
       elevatedUntil: Date.now() + 24 * 60 * 60 * 1000,
     });
     toast.success(
       `${u.fullName} has been granted Temporary Admin for 24 hours`,
     );
-    await reload(actor);
+    reload();
   };
-
-  const isActorReady = !!actor && !isFetching;
 
   return (
     <div className="flex min-h-screen bg-[#111c18]">
@@ -248,7 +219,6 @@ export default function AdminPage({ session, onNavigate }: Props) {
               <Button
                 size="sm"
                 onClick={openAdd}
-                disabled={!isActorReady}
                 className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
                 data-ocid="admin.primary_button"
               >
@@ -257,17 +227,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
               </Button>
             </CardHeader>
             <CardContent>
-              {loadingUsers ? (
-                <div
-                  className="flex items-center justify-center py-12"
-                  data-ocid="admin.loading_state"
-                >
-                  <Loader2 className="h-6 w-6 animate-spin text-[#6aab7e] mr-2" />
-                  <span className="text-gray-400 text-sm">
-                    Loading users...
-                  </span>
-                </div>
-              ) : users.length === 0 ? (
+              {users.length === 0 ? (
                 <div
                   className="text-center py-12"
                   data-ocid="admin.empty_state"
@@ -509,15 +469,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
               className="bg-[#4a7c59] hover:bg-[#3d6849] text-white"
               data-ocid="admin.submit_button"
             >
-              {saving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" /> Saving...
-                </>
-              ) : editingUser ? (
-                "Update User"
-              ) : (
-                "Add User"
-              )}
+              {saving ? "Saving..." : editingUser ? "Update User" : "Add User"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -544,15 +496,12 @@ export default function AdminPage({ session, onNavigate }: Props) {
             <AlertDialogAction
               className="bg-red-700 hover:bg-red-800 text-white"
               data-ocid="admin.confirm_button"
-              onClick={async () => {
-                if (confirmDisable && actor) {
-                  await upsertUserToBackend(actor, {
-                    ...confirmDisable,
-                    isEnabled: false,
-                  });
+              onClick={() => {
+                if (confirmDisable) {
+                  updateUser(confirmDisable.id, { isEnabled: false });
                   toast.success(`${confirmDisable.fullName} disabled`);
                   setConfirmDisable(null);
-                  await reload(actor);
+                  reload();
                 }
               }}
             >

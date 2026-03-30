@@ -6,11 +6,6 @@ import {
   useEffect,
   useState,
 } from "react";
-import {
-  getUserByUsernameFromBackend,
-  seedAdminToBackend,
-  verifyCredentialsFromBackend,
-} from "../lib/backendUserService";
 import { hashPassword } from "../lib/crypto";
 import {
   auditStore,
@@ -26,11 +21,17 @@ import {
   getSession,
   setSession,
 } from "../lib/session";
-import { type StoredUser, isTempAdmin } from "../lib/userStore";
+import {
+  type StoredUser,
+  addUser,
+  getUserByUsername,
+  hasAdmin,
+  isTempAdmin,
+} from "../lib/userStore";
 
-const DATA_VERSION = "v8_stable_backend";
-const ADMIN_USERNAME = "APA_Arun";
-const ADMIN_PASSWORD = "SWiSH_SafeArun@21";
+const DATA_VERSION = "v9_localStorage";
+const ADMIN_USERNAME = "admin";
+const ADMIN_PASSWORD = "Admin@1234";
 
 function clearLocalData() {
   const keysToRemove = [
@@ -44,6 +45,7 @@ function clearLocalData() {
     "swish_questions",
     "swish_session",
     "swish_admin_claimed",
+    "swish_users",
   ];
   for (const key of keysToRemove) {
     localStorage.removeItem(key);
@@ -51,11 +53,19 @@ function clearLocalData() {
 }
 
 async function ensureAdminSeeded() {
-  const adminHash = await hashPassword(ADMIN_USERNAME, ADMIN_PASSWORD);
-  await seedAdminToBackend(adminHash);
+  if (hasAdmin()) return;
+  const hash = await hashPassword(ADMIN_USERNAME, ADMIN_PASSWORD);
+  addUser({
+    username: ADMIN_USERNAME,
+    passwordHash: hash,
+    fullName: "Administrator",
+    role: "admin",
+    originalRole: "admin",
+    elevatedUntil: null,
+    isEnabled: true,
+  });
 }
 
-/** Seed local demo data (clients, sites, templates) — does NOT touch backend */
 function seedLocalDataIfNeeded() {
   const currentVersion = localStorage.getItem("swish_data_version");
   if (currentVersion !== DATA_VERSION) {
@@ -407,60 +417,26 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Restore session synchronously from localStorage so login screen shows INSTANTLY
   const [session, setSessionState] = useState<Session | null>(() =>
     getSession(),
   );
-  // isLoading is NEVER true on startup — login screen must show immediately
   const [isLoading] = useState(false);
 
   useEffect(() => {
-    // 1. Seed local demo data (localStorage, synchronous-ish)
     seedLocalDataIfNeeded();
-
-    // 2. Seed admin to backend in background — fire and forget, never blocks UI
-    ensureAdminSeeded().catch(() => {});
-
-    // 3. If we have a cached session, silently validate it against backend in background
-    const existing = getSession();
-    if (existing) {
-      getUserByUsernameFromBackend(existing.username)
-        .then((freshUser) => {
-          if (freshUser?.isEnabled) {
-            setSessionState(setSession(freshUser));
-          } else if (freshUser && !freshUser.isEnabled) {
-            // Account disabled — log out
-            clearSession();
-            setSessionState(null);
-          }
-          // If freshUser is null (backend unreachable), keep the cached session
-        })
-        .catch(() => {}); // Never crash on background validation failure
-    }
+    ensureAdminSeeded();
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     try {
+      // Ensure admin always exists
+      await ensureAdminSeeded();
+
       const hash = await hashPassword(username, password);
+      const user = getUserByUsername(username);
 
-      // Use verifyAppUserCredentials — the correct backend API
-      let valid = await verifyCredentialsFromBackend(username, hash);
-
-      // Self-healing: if admin verification fails, the canister may be fresh.
-      // Re-seed the admin and retry once.
-      if (!valid && username.toLowerCase() === ADMIN_USERNAME.toLowerCase()) {
-        await ensureAdminSeeded();
-        valid = await verifyCredentialsFromBackend(username, hash);
-      }
-
-      if (!valid) {
+      if (!user || user.passwordHash !== hash) {
         return { success: false, error: "Invalid username or password" };
-      }
-
-      // Fetch user profile
-      const user = await getUserByUsernameFromBackend(username);
-      if (!user) {
-        return { success: false, error: "User not found. Please try again." };
       }
       if (!user.isEnabled) {
         return {
@@ -469,15 +445,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
+      // Check temp admin expiry
+      if (user.elevatedUntil && Date.now() > user.elevatedUntil) {
+        const { updateUser } = await import("../lib/userStore");
+        updateUser(user.id, { role: user.originalRole, elevatedUntil: null });
+        user.role = user.originalRole;
+        user.elevatedUntil = null;
+      }
+
       const sess = setSession(user);
       setSessionState(sess);
       return { success: true };
     } catch (err) {
       console.error("[AuthContext] login error:", err);
-      return {
-        success: false,
-        error: "Connection error. Please check your network and try again.",
-      };
+      return { success: false, error: "An error occurred. Please try again." };
     }
   }, []);
 
@@ -486,13 +467,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSessionState(null);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     const existing = getSession();
     if (existing) {
-      const freshUser = await getUserByUsernameFromBackend(existing.username);
-      if (freshUser?.isEnabled) {
-        setSessionState(setSession(freshUser));
-      } else if (freshUser && !freshUser.isEnabled) {
+      const user = getUserByUsername(existing.username);
+      if (user?.isEnabled) {
+        setSessionState(setSession(user));
+      } else {
         clearSession();
         setSessionState(null);
       }
