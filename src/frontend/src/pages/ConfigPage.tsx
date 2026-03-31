@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -49,6 +59,10 @@ export default function ConfigPage({ session, clientId, onBack }: Props) {
   const [showQForm, setShowQForm] = useState(false);
   const [editQ, setEditQ] = useState<Question | null>(null);
   const [qSectionId, setQSectionId] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    type: "section" | "question";
+    id: string;
+  } | null>(null);
   const [qForm, setQForm] = useState({
     label: "",
     questionType: "radio" as Question["questionType"],
@@ -200,11 +214,9 @@ export default function ConfigPage({ session, clientId, onBack }: Props) {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-red-500 hover:text-red-400"
-                          onClick={() => {
-                            sectionStore.delete(s.id);
-                            reloadSections();
-                            toast.success("Section deleted");
-                          }}
+                          onClick={() =>
+                            setDeleteConfirm({ type: "section", id: s.id })
+                          }
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -284,11 +296,9 @@ export default function ConfigPage({ session, clientId, onBack }: Props) {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-red-500 hover:text-red-400"
-                            onClick={() => {
-                              questionStore.delete(q.id);
-                              reloadQuestions();
-                              toast.success("Question deleted");
-                            }}
+                            onClick={() =>
+                              setDeleteConfirm({ type: "question", id: q.id })
+                            }
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -458,6 +468,42 @@ export default function ConfigPage({ session, clientId, onBack }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        open={!!deleteConfirm}
+        onOpenChange={(open) => !open && setDeleteConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirm?.type === "section"
+                ? "Delete this section? All questions in it will also be removed. This cannot be undone."
+                : "Delete this question? This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!deleteConfirm) return;
+                if (deleteConfirm.type === "section") {
+                  sectionStore.delete(deleteConfirm.id);
+                  reloadSections();
+                  toast.success("Section deleted");
+                } else {
+                  questionStore.delete(deleteConfirm.id);
+                  reloadQuestions();
+                  toast.success("Question deleted");
+                }
+                setDeleteConfirm(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

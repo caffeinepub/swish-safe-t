@@ -14,7 +14,7 @@ import {
   Star,
   TrendingUp,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
@@ -29,9 +29,35 @@ interface Props {
 
 type AuditStatus = Audit["status"] | "Unstarted";
 
+const VALID_STATUSES = new Set<AuditStatus>([
+  "Unstarted",
+  "Draft",
+  "Submitted",
+  "PendingApproval",
+  "ReturnedForCorrection",
+  "Completed",
+]);
+
+function normalizeStatus(raw: string): AuditStatus {
+  if (VALID_STATUSES.has(raw as AuditStatus)) return raw as AuditStatus;
+  const lower = raw.toLowerCase().replace(/\s+/g, "");
+  if (lower === "approved" || lower === "completed") return "Completed";
+  if (lower === "returned" || lower === "rejected")
+    return "ReturnedForCorrection";
+  if (lower === "pendingapproval" || lower === "underreview")
+    return "PendingApproval";
+  if (
+    lower === "submitted" ||
+    lower === "pendingreview" ||
+    lower === "pendingforreview"
+  )
+    return "Submitted";
+  return "Draft";
+}
+
 function getDisplayStatus(audit: Audit | null): AuditStatus {
   if (!audit) return "Unstarted";
-  return audit.status;
+  return normalizeStatus(audit.status as string);
 }
 
 const STATUS_BADGE: Record<AuditStatus, { label: string; cls: string }> = {
@@ -244,6 +270,7 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                     onChange={(e) => setSearch(e.target.value)}
                     className="pl-8 h-8 w-48 bg-[#111c18] border-[#3a4f44] text-white text-sm"
                     placeholder="Search sites..."
+                    data-ocid="task.search_input"
                   />
                 </div>
               </div>
@@ -279,6 +306,7 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                       <td
                         colSpan={7}
                         className="text-center py-12 text-gray-500 text-sm"
+                        data-ocid="task.empty_state"
                       >
                         {search
                           ? "No matching sites found"
@@ -286,10 +314,10 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                       </td>
                     </tr>
                   )}
-                  {filteredSites.map((site) => {
+                  {filteredSites.map((site, idx) => {
                     const audit = siteAuditMap[site.id];
                     const status = getDisplayStatus(audit);
-                    const badge = STATUS_BADGE[status];
+                    const badge = STATUS_BADGE[status] ?? STATUS_BADGE.Draft;
                     const clientName = clientMap[site.clientId] ?? "";
                     const isExpanded = expandedRow === site.id;
                     const startedOn = audit?.startedAt
@@ -309,9 +337,8 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                           )
                         : "—";
                     return (
-                      <>
+                      <Fragment key={site.id}>
                         <tr
-                          key={site.id}
                           className="border-b border-[#151f1a] hover:bg-[#1a2720]/60 transition-colors cursor-pointer"
                           onClick={() =>
                             setExpandedRow(isExpanded ? null : site.id)
@@ -320,6 +347,7 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                             e.key === "Enter" &&
                             setExpandedRow(isExpanded ? null : site.id)
                           }
+                          data-ocid={`task.item.${idx + 1}`}
                         >
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
@@ -385,10 +413,7 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                           </td>
                         </tr>
                         {isExpanded && (
-                          <tr
-                            key={`${site.id}_action`}
-                            className="border-b border-[#151f1a] bg-[#111c18]/60"
-                          >
+                          <tr className="border-b border-[#151f1a] bg-[#111c18]/60">
                             <td colSpan={7} className="px-10 py-3">
                               <div className="flex items-center gap-2">
                                 <span className="text-xs text-gray-500 mr-2">
@@ -402,6 +427,7 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                                     e.stopPropagation();
                                     openQuestionnaire(site);
                                   }}
+                                  data-ocid={`task.secondary_button.${idx + 1}`}
                                 >
                                   View
                                 </Button>
@@ -414,6 +440,7 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                                       e.stopPropagation();
                                       openQuestionnaire(site);
                                     }}
+                                    data-ocid={`task.edit_button.${idx + 1}`}
                                   >
                                     Edit
                                   </Button>
@@ -426,6 +453,7 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                                     onClick={(e) => {
                                       e.stopPropagation();
                                     }}
+                                    data-ocid={`task.delete_button.${idx + 1}`}
                                   >
                                     Delete
                                   </Button>
@@ -434,7 +462,7 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>

@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -102,6 +112,9 @@ export default function TemplatePage({ session, onNavigate }: Props) {
     new Set(),
   );
   const [saving, setSaving] = useState(false);
+  const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<
+    string | null
+  >(null);
 
   const reload = () => setTemplates(templateStore.getAll());
 
@@ -215,7 +228,7 @@ export default function TemplatePage({ session, onNavigate }: Props) {
     }
   };
 
-  const deleteTemplate = (id: string) => {
+  const confirmDeleteTemplate = (id: string) => {
     templateStore.delete(id);
     templateSectionStore.deleteByTemplate(id);
     templateQuestionStore.deleteByTemplate(id);
@@ -444,7 +457,7 @@ export default function TemplatePage({ session, onNavigate }: Props) {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-red-500 hover:text-red-400"
-                          onClick={() => deleteTemplate(t.id)}
+                          onClick={() => setDeleteTemplateTarget(t.id)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -774,6 +787,34 @@ export default function TemplatePage({ session, onNavigate }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        open={!!deleteTemplateTarget}
+        onOpenChange={(open) => !open && setDeleteTemplateTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Template?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the template and all its sections and
+              questions. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteTemplateTarget) {
+                  confirmDeleteTemplate(deleteTemplateTarget);
+                  setDeleteTemplateTarget(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +45,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
@@ -274,9 +284,9 @@ function getPsTableSchema(type: PowerSupplyType): PsColumnGroup[] {
   return [];
 }
 
-// ── PowerSupplyPanel component ──────────────────────────────────────────────
+// ── PowerSupplyPanel component (memoized) ───────────────────────────────────
 
-function PowerSupplyPanel({
+const PowerSupplyPanel = memo(function PowerSupplyPanel({
   data,
   canEdit,
   onChange,
@@ -405,7 +415,7 @@ function PowerSupplyPanel({
       </div>
     </div>
   );
-}
+});
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -459,6 +469,216 @@ function parseAnswers(json: string): {
   return { answers, observations, powerSupply };
 }
 
+// ── QuestionCard (memoized) ──────────────────────────────────────────────────
+
+interface QuestionCardProps {
+  q: TemplateQuestion;
+  ans: QuestionAnswer;
+  qErr: { answer?: boolean; remarks?: boolean; images?: boolean };
+  canEdit: boolean;
+  qi: number;
+  questionRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+  onUpdateAnswer: (
+    qId: string,
+    field: keyof QuestionAnswer,
+    value: string | string[],
+  ) => void;
+  onFileUpload: (qId: string, files: FileList | null) => void;
+  onRemoveImage: (qId: string, idx: number) => void;
+}
+
+const QuestionCard = memo(function QuestionCard({
+  q,
+  ans,
+  qErr,
+  canEdit,
+  qi,
+  questionRefs,
+  onUpdateAnswer,
+  onFileUpload,
+  onRemoveImage,
+}: QuestionCardProps) {
+  const hasQErr = qErr.answer || qErr.remarks || qErr.images;
+  return (
+    <div
+      ref={(el) => {
+        questionRefs.current[q.id] = el;
+      }}
+      data-ocid={`questionnaire.item.${qi + 1}`}
+      className={`rounded-lg border p-4 space-y-4 transition-colors ${
+        hasQErr
+          ? "border-red-600 bg-red-900/10"
+          : "border-[#2a3d33] bg-[#151f1a]"
+      }`}
+    >
+      <p className="text-sm font-semibold text-white">
+        <span className="text-[#8aad3a] mr-2">Q{qi + 1}.</span>
+        {q.label}
+      </p>
+
+      <div>
+        <p className="text-xs text-gray-400 mb-2">
+          Answer
+          {qErr.answer && <span className="text-red-400 ml-1">* Required</span>}
+        </p>
+        {q.questionType === "radio" && (
+          <RadioGroup
+            value={ans.answer}
+            onValueChange={(v) => canEdit && onUpdateAnswer(q.id, "answer", v)}
+            className="flex flex-wrap gap-4"
+            disabled={!canEdit}
+          >
+            {q.options.map((opt) => (
+              <div key={opt} className="flex items-center gap-2">
+                <RadioGroupItem
+                  value={opt}
+                  id={`${q.id}_${opt}`}
+                  className="border-[#4a7c59] text-[#8aad3a]"
+                />
+                <Label
+                  htmlFor={`${q.id}_${opt}`}
+                  className="text-gray-300 text-sm cursor-pointer"
+                >
+                  {opt}
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+        )}
+        {q.questionType === "dropdown" && (
+          <Select
+            value={ans.answer}
+            onValueChange={(v) => canEdit && onUpdateAnswer(q.id, "answer", v)}
+            disabled={!canEdit}
+          >
+            <SelectTrigger
+              className={`bg-[#111c18] border-[#3a4f44] text-white max-w-sm ${
+                qErr.answer ? "border-red-600" : ""
+              }`}
+            >
+              <SelectValue placeholder="Select an option" />
+            </SelectTrigger>
+            <SelectContent className="bg-[#1a2420] border-[#3a4f44]">
+              {q.options.map((opt) => (
+                <SelectItem
+                  key={opt}
+                  value={opt}
+                  className="text-white focus:bg-[#2d3f38]"
+                >
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      <div>
+        <p className="text-xs text-gray-400 mb-2">
+          Remarks *
+          {qErr.remarks && (
+            <span className="text-red-400 ml-1">— required</span>
+          )}
+        </p>
+        <Textarea
+          data-ocid="questionnaire.textarea"
+          value={ans.remarks}
+          onChange={(e) =>
+            canEdit && onUpdateAnswer(q.id, "remarks", e.target.value)
+          }
+          placeholder="Enter your remarks here..."
+          className={`bg-[#111c18] border-[#3a4f44] text-white placeholder:text-gray-600 resize-none min-h-[80px] ${
+            qErr.remarks ? "border-red-600 focus-visible:ring-red-600" : ""
+          }`}
+          disabled={!canEdit}
+        />
+      </div>
+
+      {q.enableImageUpload && (
+        <div>
+          <p className="text-xs text-gray-400 mb-2">
+            <ImageIcon className="h-3.5 w-3.5 inline mr-1" />
+            Image Upload
+            {q.imageUploadMandatory ? (
+              <span className="text-red-400 ml-1">*</span>
+            ) : (
+              <span className="text-gray-600 ml-1">(optional)</span>
+            )}
+            {qErr.images && (
+              <span className="text-red-400 ml-1">
+                — at least 1 image required
+              </span>
+            )}
+          </p>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {ans.images.map((src, i) => (
+              <div key={`img_${q.id}_${i}`} className="relative group">
+                <img
+                  loading="lazy"
+                  src={getFileUrl(src)}
+                  alt={`Upload ${i + 1}`}
+                  className="h-20 w-20 object-cover rounded border border-[#3a4f44]"
+                />
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveImage(q.id, i)}
+                    className="absolute -top-1.5 -right-1.5 bg-red-700 text-white rounded-full h-5 w-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          {canEdit && (
+            <label className="cursor-pointer">
+              <div
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-gray-300 transition-colors border ${
+                  qErr.images
+                    ? "bg-red-900/20 border-red-600 hover:bg-red-900/30"
+                    : "bg-[#2a3d33] hover:bg-[#3a4f44] border-[#3a4f44]"
+                }`}
+              >
+                <ImageIcon className="h-4 w-4" /> Upload Images
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => onFileUpload(q.id, e.target.files)}
+              />
+            </label>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ── Normalize legacy audit statuses ────────────────────────────────────────
+function normalizeAuditStatus(raw: string): Audit["status"] {
+  const lower = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (lower === "draft" || lower === "inprogress") return "Draft";
+  if (
+    lower === "submitted" ||
+    lower === "pendingreview" ||
+    lower === "pendingforreview"
+  )
+    return "Submitted";
+  if (lower === "pendingapproval" || lower === "underreview")
+    return "PendingApproval";
+  if (
+    lower === "returnedforcorrection" ||
+    lower === "returned" ||
+    lower === "rejected"
+  )
+    return "ReturnedForCorrection";
+  if (lower === "completed" || lower === "approved") return "Completed";
+  return "Draft";
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────
 
 export default function QuestionnairePage({
@@ -501,13 +721,20 @@ export default function QuestionnairePage({
   })();
 
   const [audit, setAudit] = useState<Audit | null>(() => {
-    if (auditId) return auditStore.getById(auditId);
-    const existing = site
-      ? auditStore
-          .getBySite(site.id)
-          .sort((a, b) => b.lastSavedAt - a.lastSavedAt)[0]
-      : null;
-    return existing ?? null;
+    const raw = auditId
+      ? auditStore.getById(auditId)
+      : site
+        ? (auditStore
+            .getBySite(site.id)
+            .sort((a, b) => b.lastSavedAt - a.lastSavedAt)[0] ?? null)
+        : null;
+    if (!raw) return null;
+    const normalized = normalizeAuditStatus(raw.status as string);
+    if (normalized !== raw.status) {
+      auditStore.update(raw.id, { status: normalized });
+      return { ...raw, status: normalized };
+    }
+    return raw;
   });
 
   const [answers, setAnswers] = useState<AuditAnswers>(initParsed.answers);
@@ -526,10 +753,22 @@ export default function QuestionnairePage({
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isExportingWord, setIsExportingWord] = useState(false);
+  const [deleteObsTarget, setDeleteObsTarget] = useState<{
+    secId: string;
+    obsId: string;
+  } | null>(null);
   const [showSendBackDialog, setShowSendBackDialog] = useState(false);
   const [sendBackComment, setSendBackComment] = useState("");
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // ── Refs for latest state (used in stable callbacks) ─────────────────────
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+  const sectionObservationsRef = useRef(sectionObservations);
+  sectionObservationsRef.current = sectionObservations;
+  const sectionPowerSupplyRef = useRef(sectionPowerSupply);
+  sectionPowerSupplyRef.current = sectionPowerSupply;
 
   useEffect(() => {
     if (!audit && site && template) {
@@ -548,77 +787,118 @@ export default function QuestionnairePage({
     }
   }, [audit, site, template, role, session]);
 
-  const saveAnswers = useCallback(
-    (
-      currentAnswers: AuditAnswers,
-      currentObs: Record<string, SectionObservation[]>,
-      currentPs: Record<string, PowerSupplyData>,
-    ) => {
-      if (!audit) return;
-      setSaving(true);
+  // ── saveAnswers — reads from refs so it has no stale-closure issues ───────
+  const saveAnswers = useCallback(() => {
+    if (!audit) return;
+    const currentAnswers = answersRef.current;
+    const currentObs = sectionObservationsRef.current;
+    const currentPs = sectionPowerSupplyRef.current;
+    setSaving(true);
+    try {
+      const combined = {
+        ...currentAnswers,
+        ...Object.fromEntries(
+          Object.entries(currentObs).map(([secId, rows]) => [
+            `__obs_${secId}`,
+            rows,
+          ]),
+        ),
+        ...Object.fromEntries(
+          Object.entries(currentPs)
+            .filter(([, ps]) => ps.type)
+            .map(([secId, ps]) => [`__ps_${secId}`, ps]),
+        ),
+      };
+      const answersJson = JSON.stringify(combined);
       try {
-        const combined = {
-          ...currentAnswers,
-          ...Object.fromEntries(
-            Object.entries(currentObs).map(([secId, rows]) => [
-              `__obs_${secId}`,
-              rows,
-            ]),
-          ),
-          ...Object.fromEntries(
-            Object.entries(currentPs)
-              .filter(([, ps]) => ps.type)
-              .map(([secId, ps]) => [`__ps_${secId}`, ps]),
-          ),
-        };
-        const answersJson = JSON.stringify(combined);
-        // Pure synchronous localStorage write — guaranteed to work with no signal
-        try {
-          localStorage.setItem(`audit_draft_${siteId}`, answersJson);
-        } catch {
-          // Storage quota exceeded — skip draft cache but continue saving in memory
-        }
-        auditStore.update(audit.id, {
-          answersJson,
-          lastSavedAt: Date.now(),
-        });
-      } finally {
-        setTimeout(() => setSaving(false), 500);
+        localStorage.setItem(`audit_draft_${siteId}`, answersJson);
+      } catch {
+        // Storage quota exceeded — skip draft cache but continue saving in memory
       }
+      auditStore.update(audit.id, {
+        answersJson,
+        lastSavedAt: Date.now(),
+      });
+    } finally {
+      setTimeout(() => setSaving(false), 500);
+    }
+  }, [audit, siteId]);
+
+  // Keep a ref to saveAnswers so stable callbacks can always call the latest version
+  const saveAnswersRef = useRef(saveAnswers);
+  saveAnswersRef.current = saveAnswers;
+
+  // ── Stable answer callbacks (empty deps — functional updaters) ────────────
+  const updateAnswer = useCallback(
+    (qId: string, field: keyof QuestionAnswer, value: string | string[]) => {
+      setAnswers((prev) => {
+        const current = prev[qId] ?? emptyAnswer();
+        return { ...prev, [qId]: { ...current, [field]: value } };
+      });
+      setErrors((prev) => {
+        const n = { ...prev };
+        if (n[qId]) {
+          const updated = { ...n[qId], [field]: false };
+          if (!updated.answer && !updated.remarks && !updated.images)
+            delete n[qId];
+          else n[qId] = updated;
+        }
+        return n;
+      });
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(
+        () => saveAnswersRef.current(),
+        5000,
+      );
     },
-    [audit, siteId],
+    [],
   );
 
-  const getOrEmpty = (qId: string): QuestionAnswer =>
-    answers[qId] ?? emptyAnswer();
-
-  const updateAnswer = (
-    qId: string,
-    field: keyof QuestionAnswer,
-    value: string | string[],
-  ) => {
-    const current = getOrEmpty(qId);
-    const next: AuditAnswers = {
-      ...answers,
-      [qId]: { ...current, [field]: value },
-    };
-    setAnswers(next);
-    setErrors((prev) => {
-      const n = { ...prev };
-      if (n[qId]) {
-        const updated = { ...n[qId], [field]: false };
-        if (!updated.answer && !updated.remarks && !updated.images)
-          delete n[qId];
-        else n[qId] = updated;
+  const handleFileUpload = useCallback(
+    (qId: string, files: FileList | null) => {
+      if (!files || !files.length) return;
+      const uploads: Promise<string>[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        uploads.push(
+          uploadFile(file)
+            .then(({ id }) => id)
+            .catch(() => ""),
+        );
       }
-      return n;
+      Promise.all(uploads).then((ids) => {
+        const newIds = ids.filter(Boolean);
+        setAnswers((prev) => {
+          const current = prev[qId] ?? emptyAnswer();
+          return {
+            ...prev,
+            [qId]: { ...current, images: [...current.images, ...newIds] },
+          };
+        });
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = setTimeout(
+          () => saveAnswersRef.current(),
+          5000,
+        );
+      });
+    },
+    [],
+  );
+
+  const removeImage = useCallback((qId: string, idx: number) => {
+    setAnswers((prev) => {
+      const current = prev[qId] ?? emptyAnswer();
+      return {
+        ...prev,
+        [qId]: {
+          ...current,
+          images: current.images.filter((_, i) => i !== idx),
+        },
+      };
     });
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(
-      () => saveAnswers(next, sectionObservations, sectionPowerSupply),
-      5000,
-    );
-  };
+    autoSaveTimerRef.current = setTimeout(() => saveAnswersRef.current(), 5000);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -628,238 +908,254 @@ export default function QuestionnairePage({
 
   const handleManualSave = () => {
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    saveAnswers(answers, sectionObservations, sectionPowerSupply);
+    saveAnswers();
     toast.success("Report saved");
   };
 
-  const handleFileUpload = (qId: string, files: FileList | null) => {
-    if (!files || !files.length) return;
-    const existing = getOrEmpty(qId).images;
-    const uploads: Promise<string>[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      uploads.push(
-        uploadFile(file)
-          .then(({ id }) => id)
-          .catch(() => ""),
-      );
-    }
-    Promise.all(uploads).then((ids) => {
-      const newImages = [...existing, ...ids.filter(Boolean)];
-      const next: AuditAnswers = {
-        ...answers,
-        [qId]: { ...getOrEmpty(qId), images: newImages },
-      };
-      setAnswers(next);
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = setTimeout(
-        () => saveAnswers(next, sectionObservations, sectionPowerSupply),
-        5000,
-      );
-    });
-  };
-
-  const removeImage = (qId: string, idx: number) => {
-    const current = getOrEmpty(qId);
-    updateAnswer(
-      qId,
-      "images",
-      current.images.filter((_, i) => i !== idx),
-    );
-  };
-
-  // ── Power Supply helpers ─────────────────────────────────────────────────
+  // ── Power Supply helpers (stable) ────────────────────────────────────────
 
   const getPsData = (secId: string): PowerSupplyData =>
     sectionPowerSupply[secId] ?? emptyPs();
 
-  const updatePsData = (secId: string, next: PowerSupplyData) => {
+  const updatePsData = useCallback((secId: string, next: PowerSupplyData) => {
     setSectionPowerSupply((prev) => {
       const updated = { ...prev, [secId]: next };
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = setTimeout(
-        () => saveAnswers(answers, sectionObservations, updated),
+        () => saveAnswersRef.current(),
         5000,
       );
       return updated;
     });
-  };
+  }, []);
 
-  // ── Observation helpers ──────────────────────────────────────────────────
+  // ── Observation helpers (stable) ─────────────────────────────────────────
 
   const getObservations = (secId: string): SectionObservation[] =>
     sectionObservations[secId] ?? [];
 
-  const persistObs = (secId: string, next: SectionObservation[]) => {
+  const persistObs = useCallback(
+    (secId: string, next: SectionObservation[]) => {
+      setSectionObservations((prev) => {
+        const updated = { ...prev, [secId]: next };
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = setTimeout(
+          () => saveAnswersRef.current(),
+          5000,
+        );
+        return updated;
+      });
+    },
+    [],
+  );
+
+  const addObservation = useCallback((secId: string) => {
     setSectionObservations((prev) => {
+      const current = prev[secId] ?? [];
+      const next = [
+        ...current,
+        { id: genId(), remarks: "", recommendations: "", images: [] },
+      ];
       const updated = { ...prev, [secId]: next };
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = setTimeout(
-        () => saveAnswers(answers, updated, sectionPowerSupply),
+        () => saveAnswersRef.current(),
         5000,
       );
       return updated;
     });
-  };
+  }, []);
 
-  const addObservation = (secId: string) => {
-    persistObs(secId, [
-      ...getObservations(secId),
-      { id: genId(), remarks: "", recommendations: "", images: [] },
-    ]);
-  };
-
-  const removeObservation = (secId: string, obsId: string) => {
-    persistObs(
-      secId,
-      getObservations(secId).filter((o) => o.id !== obsId),
-    );
-  };
-
-  const duplicateObservation = (secId: string, obsId: string) => {
-    const current = getObservations(secId);
-    const idx = current.findIndex((o) => o.id === obsId);
-    if (idx < 0) return;
-    const clone: SectionObservation = { ...current[idx], id: genId() };
-    persistObs(secId, [
-      ...current.slice(0, idx + 1),
-      clone,
-      ...current.slice(idx + 1),
-    ]);
-  };
-
-  const updateObservationField = (
-    secId: string,
-    obsId: string,
-    field: "remarks" | "recommendations",
-    value: string,
-  ) => {
-    persistObs(
-      secId,
-      getObservations(secId).map((o) =>
-        o.id === obsId ? { ...o, [field]: value } : o,
-      ),
-    );
-  };
-
-  const handleObsImageUpload = (
-    secId: string,
-    obsId: string,
-    files: FileList | null,
-  ) => {
-    if (!files || !files.length) return;
-    const uploads: Promise<string>[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      uploads.push(
-        uploadFile(file)
-          .then(({ id }) => id)
-          .catch(() => ""),
+  const removeObservation = useCallback((secId: string, obsId: string) => {
+    setSectionObservations((prev) => {
+      const current = prev[secId] ?? [];
+      const next = current.filter((o) => o.id !== obsId);
+      const updated = { ...prev, [secId]: next };
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(
+        () => saveAnswersRef.current(),
+        5000,
       );
-    }
-    Promise.all(uploads).then((ids) => {
+      return updated;
+    });
+  }, []);
+
+  const duplicateObservation = useCallback((secId: string, obsId: string) => {
+    setSectionObservations((prev) => {
+      const current = prev[secId] ?? [];
+      const idx = current.findIndex((o) => o.id === obsId);
+      if (idx < 0) return prev;
+      const clone: SectionObservation = { ...current[idx], id: genId() };
+      const next = [
+        ...current.slice(0, idx + 1),
+        clone,
+        ...current.slice(idx + 1),
+      ];
+      const updated = { ...prev, [secId]: next };
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(
+        () => saveAnswersRef.current(),
+        5000,
+      );
+      return updated;
+    });
+  }, []);
+
+  const updateObservationField = useCallback(
+    (
+      secId: string,
+      obsId: string,
+      field: "remarks" | "recommendations",
+      value: string,
+    ) => {
       persistObs(
         secId,
-        getObservations(secId).map((o) =>
+        (sectionObservationsRef.current[secId] ?? []).map((o) =>
+          o.id === obsId ? { ...o, [field]: value } : o,
+        ),
+      );
+    },
+    [persistObs],
+  );
+
+  const handleObsImageUpload = useCallback(
+    (secId: string, obsId: string, files: FileList | null) => {
+      if (!files || !files.length) return;
+      const uploads: Promise<string>[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        uploads.push(
+          uploadFile(file)
+            .then(({ id }) => id)
+            .catch(() => ""),
+        );
+      }
+      Promise.all(uploads).then((ids) => {
+        persistObs(
+          secId,
+          (sectionObservationsRef.current[secId] ?? []).map((o) =>
+            o.id === obsId
+              ? { ...o, images: [...o.images, ...ids.filter(Boolean)] }
+              : o,
+          ),
+        );
+        setObsErrors((prev) => {
+          const n = new Set(prev);
+          n.delete(obsId);
+          return n;
+        });
+      });
+    },
+    [persistObs],
+  );
+
+  const removeObsImage = useCallback(
+    (secId: string, obsId: string, imgIdx: number) => {
+      persistObs(
+        secId,
+        (sectionObservationsRef.current[secId] ?? []).map((o) =>
           o.id === obsId
-            ? { ...o, images: [...o.images, ...ids.filter(Boolean)] }
+            ? { ...o, images: o.images.filter((_, i) => i !== imgIdx) }
             : o,
         ),
       );
-      setObsErrors((prev) => {
-        const n = new Set(prev);
-        n.delete(obsId);
-        return n;
-      });
-    });
-  };
+    },
+    [persistObs],
+  );
 
-  const removeObsImage = (secId: string, obsId: string, imgIdx: number) => {
-    persistObs(
-      secId,
-      getObservations(secId).map((o) =>
-        o.id === obsId
-          ? { ...o, images: o.images.filter((_, i) => i !== imgIdx) }
-          : o,
-      ),
-    );
-  };
-
-  // ── Validation ───────────────────────────────────────────────────────────
+  // ── Validation ────────────────────────────────────────────────────────────
 
   const validateAndSubmit = () => {
-    if (!audit || !template) return;
+    if (!audit) return;
     const newErrors: ValidationErrors = {};
+    const newObsErrors = new Set<string>();
+    let hasError = false;
+
     for (const sec of sections) {
       const qs = questionsBySec[sec.id] ?? [];
       for (const q of qs) {
-        const ans = getOrEmpty(q.id);
+        const ans = answers[q.id] ?? emptyAnswer();
         const qErr: { answer?: boolean; remarks?: boolean; images?: boolean } =
           {};
-        if (!ans.answer || !ans.answer.trim()) qErr.answer = true;
-        if (!ans.remarks || !ans.remarks.trim()) qErr.remarks = true;
+        if (!ans.answer) {
+          qErr.answer = true;
+          hasError = true;
+        }
+        if (!ans.remarks.trim()) {
+          qErr.remarks = true;
+          hasError = true;
+        }
         if (
           q.enableImageUpload &&
           q.imageUploadMandatory &&
-          (!ans.images || ans.images.length === 0)
-        )
+          ans.images.length === 0
+        ) {
           qErr.images = true;
-        if (qErr.answer || qErr.remarks || qErr.images) newErrors[q.id] = qErr;
+          hasError = true;
+        }
+        if (Object.keys(qErr).length > 0) newErrors[q.id] = qErr;
       }
-    }
 
-    const newObsErrors = new Set<string>();
-    for (const sec of sections) {
       const obs = sectionObservations[sec.id] ?? [];
-      for (const ob of obs) {
-        if (ob.images.length === 0) {
-          newObsErrors.add(ob.id);
-          setExpandedSections((prev) => new Set([...prev, sec.id]));
+      for (const o of obs) {
+        if (o.images.length === 0) {
+          newObsErrors.add(o.id);
+          hasError = true;
         }
       }
     }
+
+    setErrors(newErrors);
     setObsErrors(newObsErrors);
 
-    if (Object.keys(newErrors).length > 0 || newObsErrors.size > 0) {
-      setErrors(newErrors);
+    if (hasError) {
+      // Expand sections with errors
+      const errorSecIds = new Set<string>();
       for (const sec of sections) {
-        if ((questionsBySec[sec.id] ?? []).some((q) => newErrors[q.id])) {
-          setExpandedSections((prev) => new Set([...prev, sec.id]));
-        }
+        const qs = questionsBySec[sec.id] ?? [];
+        if (qs.some((q) => newErrors[q.id])) errorSecIds.add(sec.id);
+        const obs = sectionObservations[sec.id] ?? [];
+        if (obs.some((o) => newObsErrors.has(o.id))) errorSecIds.add(sec.id);
       }
-      const firstErrorId = Object.keys(newErrors)[0];
+      setExpandedSections((prev) => {
+        const n = new Set(prev);
+        for (const id of errorSecIds) n.add(id);
+        return n;
+      });
+      // Scroll to first error
       setTimeout(() => {
-        const el = questionRefs.current[firstErrorId];
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        const firstErrId = Object.keys(newErrors)[0];
+        if (firstErrId && questionRefs.current[firstErrId]) {
+          questionRefs.current[firstErrId]?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }
       }, 100);
-      const qCount = Object.keys(newErrors).length;
-      const obsCount = newObsErrors.size;
-      let msg = "";
-      if (qCount > 0 && obsCount > 0)
-        msg = `${qCount} question${qCount > 1 ? "s" : ""} and ${obsCount} critical observation${obsCount > 1 ? "s" : ""} need attention`;
-      else if (qCount > 0)
-        msg = `${qCount} question${qCount > 1 ? "s" : ""} need attention — check highlighted fields`;
-      else
-        msg = `${obsCount} critical observation${obsCount > 1 ? "s" : ""} require at least one image`;
-      toast.error(msg);
+      toast.error("Please fix validation errors before submitting");
       return;
     }
 
     setSubmitting(true);
-    saveAnswers(answers, sectionObservations, sectionPowerSupply);
+    saveAnswers();
     let newStatus: Audit["status"] = "Submitted";
-    if (role === "reviewer") newStatus = "PendingApproval";
-    else if (role === "manager" || role === "admin") newStatus = "Completed";
+    if (role === "auditor") {
+      newStatus = "Submitted";
+    } else if (role === "reviewer") {
+      newStatus = "PendingApproval";
+    } else if (role === "manager" || role === "admin") {
+      newStatus = "Completed";
+    }
     auditStore.update(audit.id, { status: newStatus, lastSavedAt: Date.now() });
     setAudit(auditStore.getById(audit.id));
     setSubmitting(false);
-    toast.success(
-      role === "reviewer"
-        ? "Submitted for manager approval"
-        : role === "manager" || role === "admin"
-          ? "Audit approved and completed"
-          : "Audit submitted for review",
-    );
+    const statusLabel =
+      newStatus === "Submitted"
+        ? "Audit submitted for review"
+        : newStatus === "PendingApproval"
+          ? "Submitted for manager approval"
+          : "Audit approved and completed";
+    toast.success(statusLabel);
   };
 
   const handleApprove = () => {
@@ -916,21 +1212,22 @@ export default function QuestionnairePage({
   };
 
   const isReadOnly =
-    (role === "auditor" && !!audit && audit.status !== "Draft") ||
-    (role === "reviewer" &&
-      !!audit &&
-      audit.status !== "Submitted" &&
-      audit.status !== "ReturnedForCorrection") ||
-    (audit?.status === "Completed" && role !== "admin");
+    role === "admin"
+      ? false
+      : role === "auditor"
+        ? !!audit && audit.status !== "Draft"
+        : role === "reviewer"
+          ? !!audit &&
+            !["Draft", "Submitted", "ReturnedForCorrection"].includes(
+              audit.status,
+            )
+          : role === "manager"
+            ? !!audit && audit.status === "Completed"
+            : false;
 
   const canEdit = !isReadOnly;
   const canAudit = role === "auditor" && canEdit;
-  const canReview =
-    (role === "reviewer" || role === "manager" || role === "admin") &&
-    !!audit &&
-    (audit.status === "Submitted" ||
-      audit.status === "ReturnedForCorrection" ||
-      audit.status === "PendingApproval");
+
   const canApprove =
     (role === "manager" || role === "admin") &&
     !!audit &&
@@ -1130,180 +1427,23 @@ export default function QuestionnairePage({
 
                 {isExpanded && (
                   <div className="bg-[#1a2420] border border-[#1e2e26] border-t-0 rounded-b-lg px-4 py-4 space-y-4">
-                    {/* Questions */}
+                    {/* Questions — each card is memoized */}
                     {qs.map((q, qi) => {
+                      const ans = answers[q.id] ?? emptyAnswer();
                       const qErr = errors[q.id] ?? {};
-                      const hasQErr =
-                        qErr.answer || qErr.remarks || qErr.images;
-                      const ans = getOrEmpty(q.id);
                       return (
-                        <div
+                        <QuestionCard
                           key={q.id}
-                          ref={(el) => {
-                            questionRefs.current[q.id] = el;
-                          }}
-                          data-ocid={`questionnaire.item.${qi + 1}`}
-                          className={`rounded-lg border p-4 space-y-4 transition-colors ${hasQErr ? "border-red-600 bg-red-900/10" : "border-[#2a3d33] bg-[#151f1a]"}`}
-                        >
-                          <p className="text-sm font-semibold text-white">
-                            <span className="text-[#8aad3a] mr-2">
-                              Q{qi + 1}.
-                            </span>
-                            {q.label}
-                          </p>
-
-                          <div>
-                            <p className="text-xs text-gray-400 mb-2">
-                              Answer
-                              {qErr.answer && (
-                                <span className="text-red-400 ml-1">
-                                  * Required
-                                </span>
-                              )}
-                            </p>
-                            {q.questionType === "radio" && (
-                              <RadioGroup
-                                value={ans.answer}
-                                onValueChange={(v) =>
-                                  canEdit && updateAnswer(q.id, "answer", v)
-                                }
-                                className="flex flex-wrap gap-4"
-                                disabled={!canEdit}
-                              >
-                                {q.options.map((opt) => (
-                                  <div
-                                    key={opt}
-                                    className="flex items-center gap-2"
-                                  >
-                                    <RadioGroupItem
-                                      value={opt}
-                                      id={`${q.id}_${opt}`}
-                                      className="border-[#4a7c59] text-[#8aad3a]"
-                                    />
-                                    <Label
-                                      htmlFor={`${q.id}_${opt}`}
-                                      className="text-gray-300 text-sm cursor-pointer"
-                                    >
-                                      {opt}
-                                    </Label>
-                                  </div>
-                                ))}
-                              </RadioGroup>
-                            )}
-                            {q.questionType === "dropdown" && (
-                              <Select
-                                value={ans.answer}
-                                onValueChange={(v) =>
-                                  canEdit && updateAnswer(q.id, "answer", v)
-                                }
-                                disabled={!canEdit}
-                              >
-                                <SelectTrigger
-                                  className={`bg-[#111c18] border-[#3a4f44] text-white max-w-sm ${qErr.answer ? "border-red-600" : ""}`}
-                                >
-                                  <SelectValue placeholder="Select an option" />
-                                </SelectTrigger>
-                                <SelectContent className="bg-[#1a2420] border-[#3a4f44]">
-                                  {q.options.map((opt) => (
-                                    <SelectItem
-                                      key={opt}
-                                      value={opt}
-                                      className="text-white focus:bg-[#2d3f38]"
-                                    >
-                                      {opt}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          </div>
-
-                          <div>
-                            <p className="text-xs text-gray-400 mb-2">
-                              Remarks *
-                              {qErr.remarks && (
-                                <span className="text-red-400 ml-1">
-                                  — required
-                                </span>
-                              )}
-                            </p>
-                            <Textarea
-                              data-ocid="questionnaire.textarea"
-                              value={ans.remarks}
-                              onChange={(e) =>
-                                canEdit &&
-                                updateAnswer(q.id, "remarks", e.target.value)
-                              }
-                              placeholder="Enter your remarks here..."
-                              className={`bg-[#111c18] border-[#3a4f44] text-white placeholder:text-gray-600 resize-none min-h-[80px] ${qErr.remarks ? "border-red-600 focus-visible:ring-red-600" : ""}`}
-                              disabled={!canEdit}
-                            />
-                          </div>
-
-                          {q.enableImageUpload && (
-                            <div>
-                              <p className="text-xs text-gray-400 mb-2">
-                                <ImageIcon className="h-3.5 w-3.5 inline mr-1" />
-                                Image Upload
-                                {q.imageUploadMandatory ? (
-                                  <span className="text-red-400 ml-1">*</span>
-                                ) : (
-                                  <span className="text-gray-600 ml-1">
-                                    (optional)
-                                  </span>
-                                )}
-                                {qErr.images && (
-                                  <span className="text-red-400 ml-1">
-                                    — at least 1 image required
-                                  </span>
-                                )}
-                              </p>
-                              <div className="flex flex-wrap gap-2 mb-2">
-                                {ans.images.map((src, i) => (
-                                  <div
-                                    key={`img_${q.id}_${i}`}
-                                    className="relative group"
-                                  >
-                                    <img
-                                      loading="lazy"
-                                      src={getFileUrl(src)}
-                                      alt={`Upload ${i + 1}`}
-                                      className="h-20 w-20 object-cover rounded border border-[#3a4f44]"
-                                    />
-                                    {canEdit && (
-                                      <button
-                                        type="button"
-                                        onClick={() => removeImage(q.id, i)}
-                                        className="absolute -top-1.5 -right-1.5 bg-red-700 text-white rounded-full h-5 w-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                      >
-                                        <X className="h-3 w-3" />
-                                      </button>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                              {canEdit && (
-                                <label className="cursor-pointer">
-                                  <div
-                                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-gray-300 transition-colors border ${qErr.images ? "bg-red-900/20 border-red-600 hover:bg-red-900/30" : "bg-[#2a3d33] hover:bg-[#3a4f44] border-[#3a4f44]"}`}
-                                  >
-                                    <ImageIcon className="h-4 w-4" /> Upload
-                                    Images
-                                  </div>
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    multiple
-                                    className="hidden"
-                                    onChange={(e) =>
-                                      handleFileUpload(q.id, e.target.files)
-                                    }
-                                  />
-                                </label>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                          q={q}
+                          ans={ans}
+                          qErr={qErr}
+                          canEdit={canEdit}
+                          qi={qi}
+                          questionRefs={questionRefs}
+                          onUpdateAnswer={updateAnswer}
+                          onFileUpload={handleFileUpload}
+                          onRemoveImage={removeImage}
+                        />
                       );
                     })}
 
@@ -1377,7 +1517,10 @@ export default function QuestionnairePage({
                                       title="Remove observation"
                                       data-ocid={`obs.item.${oi + 1}.delete_button`}
                                       onClick={() =>
-                                        removeObservation(sec.id, obs.id)
+                                        setDeleteObsTarget({
+                                          secId: sec.id,
+                                          obsId: obs.id,
+                                        })
                                       }
                                       className="h-6 w-6 rounded-full border border-red-300 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 hover:border-red-500 transition-colors"
                                     >
@@ -1484,19 +1627,18 @@ export default function QuestionnairePage({
                                       <div
                                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs transition-colors ${
                                           obsErrors.has(obs.id)
-                                            ? "border-red-400 text-red-600 bg-red-50 hover:bg-red-100"
-                                            : "border-gray-300 text-gray-600 bg-gray-50 hover:bg-gray-100"
+                                            ? "bg-red-50 border-red-400 text-red-600 hover:bg-red-100"
+                                            : "bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100"
                                         }`}
                                       >
                                         <ImageIcon className="h-3.5 w-3.5" />{" "}
-                                        Upload Images
+                                        Upload Image
                                       </div>
                                       <input
                                         type="file"
                                         accept="image/*"
                                         multiple
                                         className="hidden"
-                                        data-ocid={`obs.item.${oi + 1}.upload_button`}
                                         onChange={(e) =>
                                           handleObsImageUpload(
                                             sec.id,
@@ -1509,7 +1651,7 @@ export default function QuestionnairePage({
                                   ) : (
                                     obs.images.length === 0 && (
                                       <p className="text-xs text-gray-400">
-                                        No images
+                                        No images uploaded.
                                       </p>
                                     )
                                   )}
@@ -1520,22 +1662,17 @@ export default function QuestionnairePage({
                         </div>
 
                         {canEdit && (
-                          <div className="flex justify-end mt-3">
-                            <Button
-                              type="button"
-                              size="sm"
-                              data-ocid={`obs.${sec.id}.primary_button`}
-                              onClick={() => addObservation(sec.id)}
-                              className="bg-[#2a3d33] hover:bg-[#3a4f44] text-white text-xs gap-1.5"
-                            >
-                              <PlusCircle className="h-3.5 w-3.5" /> Add
-                              Observation
-                            </Button>
-                          </div>
+                          <button
+                            type="button"
+                            data-ocid={`obs.${sec.id}.button`}
+                            onClick={() => addObservation(sec.id)}
+                            className="mt-3 w-full flex items-center justify-center gap-2 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                          >
+                            <PlusCircle className="h-4 w-4" /> Add Observation
+                          </button>
                         )}
                       </div>
                     </div>
-                    {/* ── end observations panel ── */}
                   </div>
                 )}
               </div>
@@ -1543,10 +1680,10 @@ export default function QuestionnairePage({
           })}
 
           {/* ── Photographs Section ── */}
-          <div className="rounded-lg overflow-hidden border border-[#2a3a2a] shadow-sm">
+          <div className="mb-3 rounded-lg overflow-hidden border border-[#1e2e26]">
             <button
               type="button"
-              onClick={() => setPhotosExpanded((p) => !p)}
+              onClick={() => setPhotosExpanded((v) => !v)}
               className="w-full flex items-center justify-between px-4 py-3 bg-[#6b7c3a] hover:bg-[#5a6b30] text-white font-semibold text-sm transition-colors"
               data-ocid="questionnaire.photos_panel"
             >
@@ -1554,7 +1691,9 @@ export default function QuestionnairePage({
               <svg
                 aria-label="Toggle photographs section"
                 role="img"
-                className={`h-4 w-4 transition-transform ${photosExpanded ? "rotate-180" : ""}`}
+                className={`h-4 w-4 transition-transform ${
+                  photosExpanded ? "rotate-180" : ""
+                }`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -1643,7 +1782,6 @@ export default function QuestionnairePage({
           </div>
         </main>
 
-        {/* Fixed bottom bar */}
         {/* Fixed footer — thumb-friendly on iOS/Android */}
         <div
           className="fixed bottom-0 left-0 md:left-56 right-0 bg-[#0d1912] border-t border-[#1e2e26] px-3 md:px-6 flex items-center gap-2"
@@ -1672,22 +1810,25 @@ export default function QuestionnairePage({
               <CheckCircle2 className="h-4 w-4" /> Submit
             </Button>
           )}
-          {canReview &&
-            role === "reviewer" &&
-            (audit?.status === "Submitted" ||
-              audit?.status === "ReturnedForCorrection") && (
+          {role === "reviewer" &&
+            canEdit &&
+            audit &&
+            ["Draft", "Submitted", "ReturnedForCorrection"].includes(
+              audit.status,
+            ) && (
               <Button
                 data-ocid="questionnaire.submit_button"
                 onClick={validateAndSubmit}
                 className="bg-purple-700 hover:bg-purple-800 text-white gap-1.5"
               >
-                <CheckCircle2 className="h-4 w-4" /> Submit for Approval
+                <CheckCircle2 className="h-4 w-4" /> {"Submit for Approval"}
               </Button>
             )}
-          {canReview &&
-            (role === "manager" || role === "admin") &&
-            audit?.status !== "PendingApproval" &&
-            audit?.status !== "Completed" && (
+          {(role === "manager" || role === "admin") &&
+            canEdit &&
+            audit &&
+            (role === "admin" ||
+              !["PendingApproval", "Completed"].includes(audit.status)) && (
               <Button
                 data-ocid="questionnaire.submit_button"
                 onClick={validateAndSubmit}
@@ -1793,6 +1934,37 @@ export default function QuestionnairePage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        open={!!deleteObsTarget}
+        onOpenChange={(open) => !open && setDeleteObsTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Observation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove this critical observation row. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteObsTarget) {
+                  removeObservation(
+                    deleteObsTarget.secId,
+                    deleteObsTarget.obsId,
+                  );
+                  setDeleteObsTarget(null);
+                }
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
