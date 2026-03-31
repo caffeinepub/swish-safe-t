@@ -94,10 +94,22 @@ export const Report = IDL.Record({
   'updatedAt' : IDL.Int,
   'managerAnswers' : IDL.Vec(Answer),
 });
+export const AuditBlob = IDL.Record({
+  'status' : IDL.Text,
+  'lastSavedAt' : IDL.Int,
+  'dataJson' : IDL.Text,
+  'siteId' : IDL.Text,
+});
 export const Client = IDL.Record({
   'id' : IDL.Text,
   'name' : IDL.Text,
   'enabled' : IDL.Bool,
+});
+export const TemplateBlob = IDL.Record({
+  'id' : IDL.Text,
+  'createdBy' : IDL.Text,
+  'updatedAt' : IDL.Int,
+  'dataJson' : IDL.Text,
 });
 export const AppUser = IDL.Record({
   'username' : IDL.Text,
@@ -163,6 +175,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'deleteQuestion' : IDL.Func([IDL.Text], [], []),
+  'deleteTemplateBlob' : IDL.Func([IDL.Text], [], []),
   'disableQuestion' : IDL.Func([IDL.Text], [], []),
   'getAllQuestions' : IDL.Func([], [IDL.Vec(Question)], ['query']),
   'getAllSections' : IDL.Func([], [IDL.Vec(Section)], ['query']),
@@ -202,13 +215,19 @@ export const idlService = IDL.Service({
     ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'listAppUsers' : IDL.Func([], [IDL.Vec(AppUserPublic)], ['query']),
+  'listAuditBlobs' : IDL.Func([], [IDL.Vec(AuditBlob)], ['query']),
   'listClients' : IDL.Func([], [IDL.Vec(Client)], ['query']),
   'listReports' : IDL.Func([], [IDL.Vec(Report)], ['query']),
+  'listTemplateBlobs' : IDL.Func([], [IDL.Vec(TemplateBlob)], ['query']),
   'listUsers' : IDL.Func([], [IDL.Vec(UserRecord)], ['query']),
+  'loadAuditBlob' : IDL.Func([IDL.Text], [IDL.Opt(AuditBlob)], ['query']),
+  'loadTemplateBlob' : IDL.Func([IDL.Text], [IDL.Opt(TemplateBlob)], ['query']),
+  'saveAuditBlob' : IDL.Func([AuditBlob], [], []),
   'saveAuditorAnswers' : IDL.Func([IDL.Text, IDL.Vec(Answer)], [IDL.Text], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'saveManagerAnswers' : IDL.Func([IDL.Text, IDL.Vec(Answer)], [], []),
   'saveReviewerAnswers' : IDL.Func([IDL.Text, IDL.Vec(Answer)], [IDL.Text], []),
+  'saveTemplateBlob' : IDL.Func([TemplateBlob], [], []),
   'seedAppAdmin' : IDL.Func([AppUser], [IDL.Bool], []),
   'sendBackReport' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
   'submitReport' : IDL.Func([IDL.Text], [SubmitResult], []),
@@ -306,10 +325,22 @@ export const idlFactory = ({ IDL }) => {
     'updatedAt' : IDL.Int,
     'managerAnswers' : IDL.Vec(Answer),
   });
+  const AuditBlob = IDL.Record({
+    'status' : IDL.Text,
+    'lastSavedAt' : IDL.Int,
+    'dataJson' : IDL.Text,
+    'siteId' : IDL.Text,
+  });
   const Client = IDL.Record({
     'id' : IDL.Text,
     'name' : IDL.Text,
     'enabled' : IDL.Bool,
+  });
+  const TemplateBlob = IDL.Record({
+    'id' : IDL.Text,
+    'createdBy' : IDL.Text,
+    'updatedAt' : IDL.Int,
+    'dataJson' : IDL.Text,
   });
   const AppUser = IDL.Record({
     'username' : IDL.Text,
@@ -375,6 +406,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'deleteQuestion' : IDL.Func([IDL.Text], [], []),
+    'deleteTemplateBlob' : IDL.Func([IDL.Text], [], []),
     'disableQuestion' : IDL.Func([IDL.Text], [], []),
     'getAllQuestions' : IDL.Func([], [IDL.Vec(Question)], ['query']),
     'getAllSections' : IDL.Func([], [IDL.Vec(Section)], ['query']),
@@ -418,9 +450,18 @@ export const idlFactory = ({ IDL }) => {
       ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'listAppUsers' : IDL.Func([], [IDL.Vec(AppUserPublic)], ['query']),
+    'listAuditBlobs' : IDL.Func([], [IDL.Vec(AuditBlob)], ['query']),
     'listClients' : IDL.Func([], [IDL.Vec(Client)], ['query']),
     'listReports' : IDL.Func([], [IDL.Vec(Report)], ['query']),
+    'listTemplateBlobs' : IDL.Func([], [IDL.Vec(TemplateBlob)], ['query']),
     'listUsers' : IDL.Func([], [IDL.Vec(UserRecord)], ['query']),
+    'loadAuditBlob' : IDL.Func([IDL.Text], [IDL.Opt(AuditBlob)], ['query']),
+    'loadTemplateBlob' : IDL.Func(
+        [IDL.Text],
+        [IDL.Opt(TemplateBlob)],
+        ['query'],
+      ),
+    'saveAuditBlob' : IDL.Func([AuditBlob], [], []),
     'saveAuditorAnswers' : IDL.Func(
         [IDL.Text, IDL.Vec(Answer)],
         [IDL.Text],
@@ -433,6 +474,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Text],
         [],
       ),
+    'saveTemplateBlob' : IDL.Func([TemplateBlob], [], []),
     'seedAppAdmin' : IDL.Func([AppUser], [IDL.Bool], []),
     'sendBackReport' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
     'submitReport' : IDL.Func([IDL.Text], [SubmitResult], []),

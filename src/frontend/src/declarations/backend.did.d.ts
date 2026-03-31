@@ -37,6 +37,12 @@ export interface AppUserPublic {
   'fullName' : string,
   'isEnabled' : boolean,
 }
+export interface AuditBlob {
+  'status' : string,
+  'lastSavedAt' : bigint,
+  'dataJson' : string,
+  'siteId' : string,
+}
 export interface Client { 'id' : string, 'name' : string, 'enabled' : boolean }
 export interface Question {
   'id' : string,
@@ -79,6 +85,12 @@ export interface Section {
 }
 export type SubmitResult = { 'missingAnswers' : Array<string> } |
   { 'success' : null };
+export interface TemplateBlob {
+  'id' : string,
+  'createdBy' : string,
+  'updatedAt' : bigint,
+  'dataJson' : string,
+}
 export interface UserProfile { 'name' : string }
 export interface UserRecord {
   'principal' : Principal,
@@ -130,6 +142,7 @@ export interface _SERVICE {
   'bootstrapAdmin' : ActorMethod<[string, string], string>,
   'createReport' : ActorMethod<[string, string, Principal], string>,
   'deleteQuestion' : ActorMethod<[string], undefined>,
+  'deleteTemplateBlob' : ActorMethod<[string], undefined>,
   'disableQuestion' : ActorMethod<[string], undefined>,
   'getAllQuestions' : ActorMethod<[], Array<Question>>,
   'getAllSections' : ActorMethod<[], Array<Section>>,
@@ -150,13 +163,19 @@ export interface _SERVICE {
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'listAppUsers' : ActorMethod<[], Array<AppUserPublic>>,
+  'listAuditBlobs' : ActorMethod<[], Array<AuditBlob>>,
   'listClients' : ActorMethod<[], Array<Client>>,
   'listReports' : ActorMethod<[], Array<Report>>,
+  'listTemplateBlobs' : ActorMethod<[], Array<TemplateBlob>>,
   'listUsers' : ActorMethod<[], Array<UserRecord>>,
+  'loadAuditBlob' : ActorMethod<[string], [] | [AuditBlob]>,
+  'loadTemplateBlob' : ActorMethod<[string], [] | [TemplateBlob]>,
+  'saveAuditBlob' : ActorMethod<[AuditBlob], undefined>,
   'saveAuditorAnswers' : ActorMethod<[string, Array<Answer>], string>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'saveManagerAnswers' : ActorMethod<[string, Array<Answer>], undefined>,
   'saveReviewerAnswers' : ActorMethod<[string, Array<Answer>], string>,
+  'saveTemplateBlob' : ActorMethod<[TemplateBlob], undefined>,
   'seedAppAdmin' : ActorMethod<[AppUser], boolean>,
   'sendBackReport' : ActorMethod<[string, string], string>,
   'submitReport' : ActorMethod<[string], SubmitResult>,

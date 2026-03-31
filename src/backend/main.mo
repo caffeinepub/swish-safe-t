@@ -11,8 +11,11 @@ import Text "mo:core/Text";
 import Principal "mo:core/Principal";
 import MixinStorage "blob-storage/Mixin";
 import MixinAuthorization "authorization/MixinAuthorization";
+import Migration "migration";
 import AccessControl "authorization/access-control";
 
+// Specify migration function in with-clause
+(with migration = Migration.run)
 actor {
   // Storage
   include MixinStorage();
@@ -51,6 +54,7 @@ actor {
 
   public type UserProfile = {
     name : Text;
+    // Other user metadata if needed
   };
 
   public type Client = {
@@ -147,6 +151,32 @@ actor {
     isEnabled : Bool;
   };
 
+  // TemplateBlob for full template (sections + questions) export
+  public type TemplateBlob = {
+    id : Text;
+    dataJson : Text; // Full serialized template with sections and questions as JSON
+    updatedAt : Int; // Epoch millis for conflict resolution
+    createdBy : Text;
+  };
+
+  public type AuditBlob = {
+    siteId : Text; // Unique key per site
+    dataJson : Text; // Full serialized audit (answers, observations, power supply as JSON)
+    status : Text;
+    lastSavedAt : Int; // Epoch millis for conflict resolution
+  };
+
+  // Stable storage for appUsers — survives canister upgrades
+  var stableAppUsers : [(Text, AppUser)] = [];
+  let appUsers = Map.empty<Text, AppUser>(); // populated in postupgrade
+
+  // Stable storage for template blobs
+  var stableTemplateBlobs : [(Text, TemplateBlob)] = [];
+  let templateBlobs = Map.empty<Text, TemplateBlob>(); // Populated in postupgrade
+
+  var stableAuditBlobs : [(Text, AuditBlob)] = [];
+  let auditBlobs = Map.empty<Text, AuditBlob>(); // Populated in postupgrade
+
   // Internal Storage
   let userRecords = Map.empty<Principal, UserRecord>();
   let userProfiles = Map.empty<Principal, UserProfile>();
@@ -154,9 +184,6 @@ actor {
   let sections = Map.empty<Text, Section>();
   let questions = Map.empty<Text, Question>();
   let reports = Map.empty<Text, Report>();
-  // Stable storage for appUsers — survives canister upgrades
-  var stableAppUsers : [(Text, AppUser)] = [];
-  let appUsers = Map.empty<Text, AppUser>(); // populated in postupgrade
 
   // The setup passphrase for claiming admin role
   let ADMIN_SETUP_CODE : Text = "SWISH-SETUP-2026";
@@ -975,6 +1002,8 @@ actor {
   };
 
   // === APP USER API ===
+  // These functions are intentionally OPEN (no IC auth) because the app uses
+  // username/password authentication at the application layer
 
   // Get user's public profile — no IC auth required (credentials verified separately)
   public query func getAppUserPublic(username : Text) : async ?AppUserPublic {
@@ -1043,16 +1072,92 @@ actor {
     true;
   };
 
-  // Persist appUsers to stable storage before canister upgrade
+  // === TEMPLATE BLOB API ===
+  // These functions are intentionally OPEN (no IC auth) per specification
+  // The application uses username/password authentication at the app layer
+
+  public shared func saveTemplateBlob(entry : TemplateBlob) : async () {
+    let existing = templateBlobs.get(entry.id);
+
+    // Only update if incoming entry is newer
+    switch (existing) {
+      case (?existing) {
+        if (existing.updatedAt >= entry.updatedAt) {
+          return; // No update needed
+        };
+      };
+      case (null) {};
+    };
+
+    // Update persistent templateBlobs map
+    templateBlobs.add(entry.id, entry);
+
+    // Update stable storage snapshot
+    stableTemplateBlobs := templateBlobs.entries().toArray();
+  };
+
+  public query func loadTemplateBlob(id : Text) : async ?TemplateBlob {
+    templateBlobs.get(id);
+  };
+
+  public query func listTemplateBlobs() : async [TemplateBlob] {
+    templateBlobs.values().toArray();
+  };
+
+  public shared func deleteTemplateBlob(id : Text) : async () {
+    templateBlobs.remove(id);
+    stableTemplateBlobs := templateBlobs.entries().toArray();
+  };
+
+  // === AUDIT BLOB API ===
+  // These functions are intentionally OPEN (no IC auth) per specification
+  // The application uses username/password authentication at the app layer
+
+  public shared func saveAuditBlob(entry : AuditBlob) : async () {
+    let existing = auditBlobs.get(entry.siteId);
+
+    // Only update if incoming entry is newer
+    switch (existing) {
+      case (?existing) {
+        if (existing.lastSavedAt >= entry.lastSavedAt) {
+          return; // No update needed
+        };
+      };
+      case (null) {};
+    };
+
+    // Update persistent auditBlobs map
+    auditBlobs.add(entry.siteId, entry);
+
+    // Update stable storage snapshot
+    stableAuditBlobs := auditBlobs.entries().toArray();
+  };
+
+  public query func loadAuditBlob(siteId : Text) : async ?AuditBlob {
+    auditBlobs.get(siteId);
+  };
+
+  public query func listAuditBlobs() : async [AuditBlob] {
+    auditBlobs.values().toArray();
+  };
+
+  // Persist all stable vars to stable storage before canister upgrade
   system func preupgrade() {
+    stableTemplateBlobs := templateBlobs.entries().toArray();
+    stableAuditBlobs := auditBlobs.entries().toArray();
     stableAppUsers := appUsers.entries().toArray();
   };
 
-  // Restore appUsers from stable storage after upgrade
+  // Restore all stable vars from stable storage after upgrade
   system func postupgrade() {
+    for ((k, v) in stableTemplateBlobs.vals()) {
+      templateBlobs.add(k, v);
+    };
+    for ((k, v) in stableAuditBlobs.vals()) {
+      auditBlobs.add(k, v);
+    };
     for ((k, v) in stableAppUsers.vals()) {
       appUsers.add(k, v);
     };
   };
-
 };

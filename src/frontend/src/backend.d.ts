@@ -7,8 +7,13 @@ export interface None {
     __kind__: "None";
 }
 export type Option<T> = Some<T> | None;
-export interface UserProfile {
-    name: string;
+export interface AppUserPublic {
+    username: string;
+    originalRole: AppRole;
+    elevatedUntil?: bigint;
+    role: AppRole;
+    fullName: string;
+    isEnabled: boolean;
 }
 export type SubmitResult = {
     __kind__: "missingAnswers";
@@ -17,6 +22,12 @@ export type SubmitResult = {
     __kind__: "success";
     success: null;
 };
+export interface TemplateBlob {
+    id: string;
+    createdBy: string;
+    updatedAt: bigint;
+    dataJson: string;
+}
 export interface Report {
     id: string;
     status: ReportStatus;
@@ -29,6 +40,12 @@ export interface Report {
     siteName: string;
     updatedAt: bigint;
     managerAnswers: Array<Answer>;
+}
+export interface AuditBlob {
+    status: string;
+    lastSavedAt: bigint;
+    dataJson: string;
+    siteId: string;
 }
 export interface UserRecord {
     principal: Principal;
@@ -68,20 +85,15 @@ export interface Client {
     name: string;
     enabled: boolean;
 }
-export interface AppUserPublic {
-    username: string;
-    originalRole: AppRole;
-    elevatedUntil?: bigint;
-    role: AppRole;
-    fullName: string;
-    isEnabled: boolean;
-}
 export interface Section {
     id: string;
     clientId: string;
     order: bigint;
     name: string;
     enabled: boolean;
+}
+export interface UserProfile {
+    name: string;
 }
 export enum AppRole {
     manager = "manager",
@@ -116,6 +128,7 @@ export interface backendInterface {
     bootstrapAdmin(name: string, setupCode: string): Promise<string>;
     createReport(clientId: string, siteName: string, assignedAuditor: Principal): Promise<string>;
     deleteQuestion(id: string): Promise<void>;
+    deleteTemplateBlob(id: string): Promise<void>;
     disableQuestion(id: string): Promise<void>;
     getAllQuestions(): Promise<Array<Question>>;
     getAllSections(): Promise<Array<Section>>;
@@ -137,13 +150,19 @@ export interface backendInterface {
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
     listAppUsers(): Promise<Array<AppUserPublic>>;
+    listAuditBlobs(): Promise<Array<AuditBlob>>;
     listClients(): Promise<Array<Client>>;
     listReports(): Promise<Array<Report>>;
+    listTemplateBlobs(): Promise<Array<TemplateBlob>>;
     listUsers(): Promise<Array<UserRecord>>;
+    loadAuditBlob(siteId: string): Promise<AuditBlob | null>;
+    loadTemplateBlob(id: string): Promise<TemplateBlob | null>;
+    saveAuditBlob(entry: AuditBlob): Promise<void>;
     saveAuditorAnswers(reportId: string, answers: Array<Answer>): Promise<string>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     saveManagerAnswers(reportId: string, answers: Array<Answer>): Promise<void>;
     saveReviewerAnswers(reportId: string, answers: Array<Answer>): Promise<string>;
+    saveTemplateBlob(entry: TemplateBlob): Promise<void>;
     seedAppAdmin(user: AppUser): Promise<boolean>;
     sendBackReport(reportId: string, comments: string): Promise<string>;
     submitReport(reportId: string): Promise<SubmitResult>;

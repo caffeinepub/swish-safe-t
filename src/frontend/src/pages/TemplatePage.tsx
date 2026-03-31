@@ -37,11 +37,12 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
+import { backendSync } from "../lib/backendSync";
 import {
   type QuestionTemplate,
   type TemplateQuestion,
@@ -117,6 +118,15 @@ export default function TemplatePage({ session, onNavigate }: Props) {
   >(null);
 
   const reload = () => setTemplates(templateStore.getAll());
+
+  useEffect(() => {
+    backendSync
+      .loadTemplates()
+      .then(() => {
+        setTemplates(templateStore.getAll());
+      })
+      .catch(() => {});
+  }, []);
 
   const openNew = () => {
     setEditTemplateId(null);
@@ -220,6 +230,7 @@ export default function TemplatePage({ session, onNavigate }: Props) {
           });
         }
       }
+      backendSync.pushTemplate(templateId);
       toast.success(editTemplateId ? "Template updated" : "Template created");
       setShowBuilder(false);
       reload();
@@ -232,6 +243,7 @@ export default function TemplatePage({ session, onNavigate }: Props) {
     templateStore.delete(id);
     templateSectionStore.deleteByTemplate(id);
     templateQuestionStore.deleteByTemplate(id);
+    backendSync.deleteTemplate(id);
     toast.success("Template deleted");
     reload();
   };

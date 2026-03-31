@@ -50,6 +50,7 @@ import { toast } from "sonner";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
+import { backendSync } from "../lib/backendSync";
 import { getFileUrl, uploadFile } from "../lib/blob-storage";
 import {
   type Audit,
@@ -787,6 +788,28 @@ export default function QuestionnairePage({
     }
   }, [audit, site, template, role, session]);
 
+  // ── Backend sync: load audit from canister on mount ──────────────────────
+  useEffect(() => {
+    backendSync
+      .loadAudit(siteId)
+      .then(() => {
+        const updated = auditStore.getLatestBySite(siteId);
+        if (updated) {
+          const parsed = parseAnswers(updated.answersJson);
+          setAnswers(parsed.answers);
+          setSectionObservations(parsed.observations);
+          setSectionPowerSupply(parsed.powerSupply);
+          setAudit((prev) => {
+            if (!prev) return prev;
+            const normalized = normalizeAuditStatus(updated.status as string);
+            return { ...prev, ...updated, status: normalized };
+          });
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId]);
+
   // ── saveAnswers — reads from refs so it has no stale-closure issues ───────
   const saveAnswers = useCallback(() => {
     if (!audit) return;
@@ -819,6 +842,7 @@ export default function QuestionnairePage({
         answersJson,
         lastSavedAt: Date.now(),
       });
+      backendSync.pushAudit(siteId);
     } finally {
       setTimeout(() => setSaving(false), 500);
     }
