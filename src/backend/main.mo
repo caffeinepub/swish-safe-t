@@ -11,11 +11,11 @@ import Text "mo:core/Text";
 import Principal "mo:core/Principal";
 import MixinStorage "blob-storage/Mixin";
 import MixinAuthorization "authorization/MixinAuthorization";
-import Migration "migration";
+
 import AccessControl "authorization/access-control";
 
 // Specify migration function in with-clause
-(with migration = Migration.run)
+
 actor {
   // Storage
   include MixinStorage();

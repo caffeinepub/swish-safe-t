@@ -220,9 +220,19 @@ export default function SitesPage({
     }
     setAssignSaving(true);
     try {
-      const auditor = users.find((u) => u.id === assignForm.auditorId);
-      const reviewer = users.find((u) => u.id === assignForm.reviewerId);
-      const manager = users.find((u) => u.id === assignForm.managerId);
+      // Always fetch fresh from localStorage to avoid stale closure issues
+      const freshUsers = getUsers().filter((u) => u.isEnabled);
+      const auditor = freshUsers.find((u) => u.id === assignForm.auditorId);
+      const effectiveReviewerId =
+        assignForm.reviewerId === "none" ? "" : (assignForm.reviewerId ?? "");
+      const effectiveManagerId =
+        assignForm.managerId === "none" ? "" : (assignForm.managerId ?? "");
+      const reviewer = effectiveReviewerId
+        ? freshUsers.find((u) => u.id === effectiveReviewerId)
+        : undefined;
+      const manager = effectiveManagerId
+        ? freshUsers.find((u) => u.id === effectiveManagerId)
+        : undefined;
 
       const updates: Partial<Site> = {};
 
@@ -230,20 +240,18 @@ export default function SitesPage({
       if (role === "reviewer" || role === "manager" || role === "admin") {
         updates.auditorId = assignForm.auditorId;
         updates.auditorName = auditor?.fullName ?? "";
+        updates.assignedAuditorId = assignForm.auditorId;
+        updates.assignedAuditorName = auditor?.fullName ?? "";
       }
       // Manager can also change Reviewer
       if (role === "manager" || role === "admin") {
-        updates.reviewerId =
-          assignForm.reviewerId === "none" ? "" : assignForm.reviewerId;
-        updates.reviewerName =
-          assignForm.reviewerId === "none" ? "" : (reviewer?.fullName ?? "");
+        updates.reviewerId = effectiveReviewerId;
+        updates.reviewerName = reviewer?.fullName ?? "";
       }
       // Admin can also change Manager
       if (role === "admin") {
-        updates.managerId =
-          assignForm.managerId === "none" ? "" : assignForm.managerId;
-        updates.managerName =
-          assignForm.managerId === "none" ? "" : (manager?.fullName ?? "");
+        updates.managerId = effectiveManagerId;
+        updates.managerName = manager?.fullName ?? "";
       }
 
       siteStore.update(assignSite.id, updates);
@@ -277,15 +285,34 @@ export default function SitesPage({
       return;
     }
     setSaving(true);
-    const auditor = users.find((u) => u.id === form.auditorId);
-    const reviewer = users.find((u) => u.id === form.reviewerId);
-    const manager = users.find((u) => u.id === form.managerId);
+    // Always fetch fresh from localStorage to avoid stale closure issues
+    const freshUsers = getUsers().filter((u) => u.isEnabled);
+    const effectiveReviewerId =
+      form.reviewerId === "none" ? "" : (form.reviewerId ?? "");
+    const effectiveManagerId =
+      form.managerId === "none" ? "" : (form.managerId ?? "");
+    const auditor = freshUsers.find((u) => u.id === form.auditorId);
+    const reviewer = effectiveReviewerId
+      ? freshUsers.find((u) => u.id === effectiveReviewerId)
+      : undefined;
+    const manager = effectiveManagerId
+      ? freshUsers.find((u) => u.id === effectiveManagerId)
+      : undefined;
+    const auditorName = auditor?.fullName ?? "";
+    const reviewerName = reviewer?.fullName ?? "";
+    const managerName = manager?.fullName ?? "";
     try {
       const payload = {
         ...form,
-        auditorName: auditor?.fullName ?? "",
-        reviewerName: reviewer?.fullName ?? "",
-        managerName: manager?.fullName ?? "",
+        auditorId: form.auditorId,
+        auditorName,
+        reviewerId: effectiveReviewerId,
+        reviewerName,
+        managerId: effectiveManagerId,
+        managerName,
+        // Keep legacy fields in sync so the || fallback always shows correct data
+        assignedAuditorId: form.auditorId,
+        assignedAuditorName: auditorName,
         templateId: form.templateId || undefined,
       };
       if (editSite) {

@@ -74,6 +74,54 @@ function buildTemplateDataJson(templateId: string): string {
   return JSON.stringify({ template, sections, questions });
 }
 
+/**
+ * Deduplicate swish_templates in localStorage by name.
+ * For each group of same-name entries, keep the one with the highest createdAt.
+ */
+function dedupeLocalStorageTemplatesByName() {
+  try {
+    const raw = localStorage.getItem("swish_templates");
+    if (!raw) return;
+    const all = JSON.parse(raw) as Array<Record<string, unknown>>;
+    if (all.length === 0) return;
+
+    const byName = new Map<string, Record<string, unknown>>();
+    const toRemoveIds = new Set<string>();
+
+    for (const t of all) {
+      const name = (t.name as string) ?? "";
+      const existing = byName.get(name);
+      if (!existing) {
+        byName.set(name, t);
+      } else {
+        // Keep the one with the higher createdAt
+        const existingTs = (existing.createdAt as number) ?? 0;
+        const incomingTs = (t.createdAt as number) ?? 0;
+        if (incomingTs > existingTs) {
+          toRemoveIds.add(existing.id as string);
+          byName.set(name, t);
+        } else {
+          toRemoveIds.add(t.id as string);
+        }
+      }
+    }
+
+    if (toRemoveIds.size === 0) return;
+
+    // Remove duplicates from templates list
+    const deduped = all.filter((t) => !toRemoveIds.has(t.id as string));
+    localStorage.setItem("swish_templates", JSON.stringify(deduped));
+
+    // Clean up sections and questions for removed IDs
+    for (const id of toRemoveIds) {
+      templateSectionStore.deleteByTemplate(id);
+      templateQuestionStore.deleteByTemplate(id);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function applyTemplateBlob(blob: {
   id: string;
   createdBy: string;
@@ -101,10 +149,25 @@ function applyTemplateBlob(blob: {
         id: blob.id,
       } as Parameters<typeof templateStore.update>[1]);
     } else {
-      // Insert — write directly to localStorage
+      // Insert — write directly to localStorage, preventing same-name duplicates
       const all = JSON.parse(
         localStorage.getItem("swish_templates") ?? "[]",
-      ) as unknown[];
+      ) as Array<Record<string, unknown>>;
+
+      const incomingName = (parsed.template.name as string) ?? "";
+
+      // Check for an existing entry with the same name
+      const duplicateIdx = all.findIndex(
+        (t) => (t.name as string) === incomingName,
+      );
+      if (duplicateIdx !== -1) {
+        const duplicateId = all[duplicateIdx].id as string;
+        // Remove the old duplicate entry and clean its sections/questions
+        all.splice(duplicateIdx, 1);
+        templateSectionStore.deleteByTemplate(duplicateId);
+        templateQuestionStore.deleteByTemplate(duplicateId);
+      }
+
       all.push({ ...parsed.template, id: blob.id, isEnabled: true });
       localStorage.setItem("swish_templates", JSON.stringify(all));
     }
@@ -210,6 +273,9 @@ export const backendSync = {
       // First-time bootstrap: push local templates to canister
       const alreadyPushed = localStorage.getItem(TEMPLATES_PUSHED_FLAG);
       if (!alreadyPushed) {
+        // Deduplicate localStorage templates by name before pushing
+        dedupeLocalStorageTemplatesByName();
+
         const localTemplates = templateStore.getAll();
         for (const t of localTemplates) {
           try {
@@ -221,7 +287,7 @@ export const backendSync = {
         localStorage.setItem(TEMPLATES_PUSHED_FLAG, "1");
       }
 
-      // Pull from canister
+      // Pull from canister — deduplicate by name, keep highest updatedAt
       const blobs: Array<{
         id: string;
         createdBy: string;
@@ -229,9 +295,54 @@ export const backendSync = {
         dataJson: string;
       }> = await actor.listTemplateBlobs();
 
+      // Group blobs by template name
+      const blobsByName = new Map<
+        string,
+        Array<{
+          id: string;
+          createdBy: string;
+          updatedAt: bigint;
+          dataJson: string;
+        }>
+      >();
+
       for (const blob of blobs) {
-        applyTemplateBlob(blob);
+        try {
+          const parsed = JSON.parse(blob.dataJson) as {
+            template?: { name?: string };
+          };
+          const name = parsed.template?.name ?? blob.id;
+          const group = blobsByName.get(name) ?? [];
+          group.push(blob);
+          blobsByName.set(name, group);
+        } catch {
+          // Malformed — treat id as name to avoid losing the blob
+          const group = blobsByName.get(blob.id) ?? [];
+          group.push(blob);
+          blobsByName.set(blob.id, group);
+        }
       }
+
+      // For each group: keep the one with highest updatedAt, delete the rest
+      for (const [, group] of blobsByName) {
+        if (group.length === 1) {
+          applyTemplateBlob(group[0]);
+          continue;
+        }
+
+        // Sort descending by updatedAt — winner is first
+        group.sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1));
+        const winner = group[0];
+        applyTemplateBlob(winner);
+
+        // Delete duplicates from canister (fire-and-forget)
+        for (const dup of group.slice(1)) {
+          actor.deleteTemplateBlob(dup.id).catch(() => {});
+        }
+      }
+
+      // Final pass: deduplicate localStorage in case it already had duplicates
+      dedupeLocalStorageTemplatesByName();
     } catch {
       // Offline — silently continue with localStorage
     }

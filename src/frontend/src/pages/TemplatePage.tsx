@@ -35,9 +35,10 @@ import {
   ImageIcon,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
@@ -113,20 +114,46 @@ export default function TemplatePage({ session, onNavigate }: Props) {
     new Set(),
   );
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<
     string | null
   >(null);
 
   const reload = () => setTemplates(templateStore.getAll());
 
-  useEffect(() => {
+  const doRefresh = useCallback((silent = false) => {
+    if (!silent) setRefreshing(true);
     backendSync
       .loadTemplates()
       .then(() => {
         setTemplates(templateStore.getAll());
+        if (!silent) toast.success("Templates refreshed");
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!silent)
+          toast.error("Could not reach server — showing cached data");
+      })
+      .finally(() => {
+        if (!silent) setRefreshing(false);
+      });
   }, []);
+
+  // Load on mount
+  useEffect(() => {
+    doRefresh(true);
+  }, [doRefresh]);
+
+  // Refresh when the user returns to this tab
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        doRefresh(true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
+  }, [doRefresh]);
 
   const openNew = () => {
     setEditTemplateId(null);
@@ -398,14 +425,32 @@ export default function TemplatePage({ session, onNavigate }: Props) {
               Reusable audit questionnaires
             </p>
           </div>
-          <Button
-            data-ocid="templates.primary_button"
-            size="sm"
-            onClick={openNew}
-            className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
-          >
-            <Plus className="h-4 w-4" /> New Template
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              data-ocid="templates.secondary_button"
+              size="sm"
+              variant="ghost"
+              onClick={() => doRefresh(false)}
+              disabled={refreshing}
+              className="text-gray-400 hover:text-white hover:bg-[#1a2a20] gap-1.5"
+              title="Refresh templates from server"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+              />
+              <span className="hidden sm:inline text-xs">
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </span>
+            </Button>
+            <Button
+              data-ocid="templates.primary_button"
+              size="sm"
+              onClick={openNew}
+              className="bg-[#4a7c59] hover:bg-[#3d6849] text-white gap-1.5"
+            >
+              <Plus className="h-4 w-4" /> New Template
+            </Button>
+          </div>
         </header>
         <main className="flex-1 p-5 overflow-auto">
           {templates.length === 0 ? (
