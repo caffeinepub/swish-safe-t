@@ -200,7 +200,7 @@ export default function TemplatePage({ session, onNavigate }: Props) {
     setShowBuilder(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!tName.trim()) {
       toast.error("Template name is required");
       return;
@@ -257,8 +257,24 @@ export default function TemplatePage({ session, onNavigate }: Props) {
           });
         }
       }
-      backendSync.pushTemplate(templateId);
-      toast.success(editTemplateId ? "Template updated" : "Template created");
+
+      // Try to push to canister immediately; fall back to queue on failure
+      try {
+        await backendSync.pushTemplateDirect(templateId);
+        toast.success(
+          `${editTemplateId ? "Template updated" : "Template created"} — synced to server ✓`,
+        );
+      } catch (err) {
+        console.error(
+          "[TemplatePage] Canister sync failed, queuing for retry",
+          err,
+        );
+        backendSync.pushTemplate(templateId);
+        toast.success(
+          `${editTemplateId ? "Template updated" : "Template created"} — saved locally, sync pending`,
+        );
+      }
+
       setShowBuilder(false);
       reload();
     } finally {
@@ -839,7 +855,11 @@ export default function TemplatePage({ session, onNavigate }: Props) {
               disabled={saving}
               className="bg-[#4a7c59] hover:bg-[#3d6849] text-white"
             >
-              {editTemplateId ? "Update Template" : "Save Template"}
+              {saving
+                ? "Saving…"
+                : editTemplateId
+                  ? "Update Template"
+                  : "Save Template"}
             </Button>
           </DialogFooter>
         </DialogContent>

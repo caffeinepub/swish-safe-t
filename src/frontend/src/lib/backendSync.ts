@@ -25,9 +25,8 @@ interface SyncQueueItem {
 }
 
 const QUEUE_KEY = "swish_sync_queue";
-const TEMPLATES_PUSHED_FLAG = "swish_sync_templates_pushed";
 
-// ── Actor helper (same pattern as backendUserService.ts) ──────────────────
+// ── Actor helper ──────────────────────────────────────────────────────────
 
 async function getActor(): Promise<any> {
   return createActorWithConfig();
@@ -54,7 +53,6 @@ function writeQueue(items: SyncQueueItem[]) {
 
 function enqueue(item: SyncQueueItem) {
   const q = readQueue();
-  // Deduplicate: replace existing entry with same type+id
   const filtered = q.filter((x) => !(x.type === item.type && x.id === item.id));
   writeQueue([...filtered, item]);
 }
@@ -74,10 +72,6 @@ function buildTemplateDataJson(templateId: string): string {
   return JSON.stringify({ template, sections, questions });
 }
 
-/**
- * Deduplicate swish_templates in localStorage by name.
- * For each group of same-name entries, keep the one with the highest createdAt.
- */
 function dedupeLocalStorageTemplatesByName() {
   try {
     const raw = localStorage.getItem("swish_templates");
@@ -94,7 +88,6 @@ function dedupeLocalStorageTemplatesByName() {
       if (!existing) {
         byName.set(name, t);
       } else {
-        // Keep the one with the higher createdAt
         const existingTs = (existing.createdAt as number) ?? 0;
         const incomingTs = (t.createdAt as number) ?? 0;
         if (incomingTs > existingTs) {
@@ -108,11 +101,9 @@ function dedupeLocalStorageTemplatesByName() {
 
     if (toRemoveIds.size === 0) return;
 
-    // Remove duplicates from templates list
     const deduped = all.filter((t) => !toRemoveIds.has(t.id as string));
     localStorage.setItem("swish_templates", JSON.stringify(deduped));
 
-    // Clean up sections and questions for removed IDs
     for (const id of toRemoveIds) {
       templateSectionStore.deleteByTemplate(id);
       templateQuestionStore.deleteByTemplate(id);
@@ -136,17 +127,20 @@ function applyTemplateBlob(blob: {
     };
     if (!parsed.template) return;
 
-    // Merge template record
     const existing = templateStore.getById(blob.id);
     const incomingUpdatedAt = Number(blob.updatedAt);
 
-    // Only overwrite if canister has newer version
     if (existing) {
-      const localTs = (existing as { createdAt?: number }).createdAt ?? 0;
+      // Use a dedicated syncedAt timestamp for comparison, falling back to createdAt
+      const localTs =
+        (existing as { syncedAt?: number; createdAt?: number }).syncedAt ??
+        (existing as { createdAt?: number }).createdAt ??
+        0;
       if (incomingUpdatedAt <= localTs) return;
       templateStore.update(blob.id, {
         ...(parsed.template as object),
         id: blob.id,
+        syncedAt: incomingUpdatedAt,
       } as Parameters<typeof templateStore.update>[1]);
     } else {
       // Insert — write directly to localStorage, preventing same-name duplicates
@@ -156,19 +150,22 @@ function applyTemplateBlob(blob: {
 
       const incomingName = (parsed.template.name as string) ?? "";
 
-      // Check for an existing entry with the same name
       const duplicateIdx = all.findIndex(
         (t) => (t.name as string) === incomingName,
       );
       if (duplicateIdx !== -1) {
         const duplicateId = all[duplicateIdx].id as string;
-        // Remove the old duplicate entry and clean its sections/questions
         all.splice(duplicateIdx, 1);
         templateSectionStore.deleteByTemplate(duplicateId);
         templateQuestionStore.deleteByTemplate(duplicateId);
       }
 
-      all.push({ ...parsed.template, id: blob.id, isEnabled: true });
+      all.push({
+        ...parsed.template,
+        id: blob.id,
+        isEnabled: true,
+        syncedAt: incomingUpdatedAt,
+      });
       localStorage.setItem("swish_templates", JSON.stringify(all));
     }
 
@@ -176,7 +173,6 @@ function applyTemplateBlob(blob: {
     templateSectionStore.deleteByTemplate(blob.id);
     templateQuestionStore.deleteByTemplate(blob.id);
 
-    // Re-add sections
     const rawSecs = localStorage.getItem("swish_tmpl_sections");
     const allSecs: unknown[] = rawSecs ? JSON.parse(rawSecs) : [];
     for (const sec of (parsed.sections ?? []) as unknown[]) {
@@ -184,15 +180,14 @@ function applyTemplateBlob(blob: {
     }
     localStorage.setItem("swish_tmpl_sections", JSON.stringify(allSecs));
 
-    // Re-add questions
     const rawQs = localStorage.getItem("swish_tmpl_questions");
     const allQs: unknown[] = rawQs ? JSON.parse(rawQs) : [];
     for (const q of (parsed.questions ?? []) as unknown[]) {
       allQs.push(q);
     }
     localStorage.setItem("swish_tmpl_questions", JSON.stringify(allQs));
-  } catch {
-    /* malformed blob — skip */
+  } catch (err) {
+    console.error("[backendSync] Failed to apply template blob", blob.id, err);
   }
 }
 
@@ -203,12 +198,16 @@ async function _pushTemplateNow(templateId: string): Promise<void> {
   const template = templateStore.getById(templateId);
   if (!template) return;
   const dataJson = buildTemplateDataJson(templateId);
+  // Use Date.now() + 1 to always be newer than the canister's current entry
+  const updatedAt = BigInt(Date.now() + 1);
   await actor.saveTemplateBlob({
     id: templateId,
     createdBy: template.createdBy ?? "",
-    updatedAt: BigInt(template.createdAt ?? Date.now()),
+    updatedAt,
     dataJson,
   });
+  // Mark local copy with the timestamp we pushed so we don't pull it back as newer
+  templateStore.update(templateId, { syncedAt: Number(updatedAt) } as any);
 }
 
 async function _deleteTemplateNow(templateId: string): Promise<void> {
@@ -245,13 +244,18 @@ async function flushQueue(): Promise<void> {
         await _pushAuditNow(item.id);
         dequeue("pushAudit", item.id);
       }
-    } catch {
+    } catch (err) {
+      console.error(
+        "[backendSync] Failed to flush queue item",
+        item.type,
+        item.id,
+        err,
+      );
       // Leave in queue for next reconnect
     }
   }
 }
 
-// Register reconnect handler once
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
     flushQueue().catch(() => {});
@@ -263,31 +267,22 @@ if (typeof window !== "undefined") {
 export const backendSync = {
   /**
    * Load all templates from the canister.
-   * Updates localStorage stores from canister blobs (canister wins if newer).
-   * On first ever call, pushes any existing localStorage templates to canister.
+   *
+   * Strategy:
+   * 1. Flush any pending local pushes to canister first.
+   * 2. Push any local templates that the canister does NOT have (bootstrap + recovery).
+   * 3. Pull from canister — apply any blobs newer than local copies.
+   * 4. Deduplicate local storage.
    */
   async loadTemplates(): Promise<void> {
+    await flushQueue().catch(() => {});
     try {
       const actor = await getActor();
 
-      // First-time bootstrap: push local templates to canister
-      const alreadyPushed = localStorage.getItem(TEMPLATES_PUSHED_FLAG);
-      if (!alreadyPushed) {
-        // Deduplicate localStorage templates by name before pushing
-        dedupeLocalStorageTemplatesByName();
+      // Deduplicate local storage before any sync
+      dedupeLocalStorageTemplatesByName();
 
-        const localTemplates = templateStore.getAll();
-        for (const t of localTemplates) {
-          try {
-            await _pushTemplateNow(t.id);
-          } catch {
-            /* skip failed individual pushes */
-          }
-        }
-        localStorage.setItem(TEMPLATES_PUSHED_FLAG, "1");
-      }
-
-      // Pull from canister — deduplicate by name, keep highest updatedAt
+      // Pull current canister blobs (used for both push-guard and pull)
       const blobs: Array<{
         id: string;
         createdBy: string;
@@ -295,7 +290,24 @@ export const backendSync = {
         dataJson: string;
       }> = await actor.listTemplateBlobs();
 
-      // Group blobs by template name
+      // Build a map of canister blob IDs for quick lookup
+      const canisterIds = new Set(blobs.map((b) => b.id));
+
+      // Push local templates that are missing from the canister
+      // (handles first-time bootstrap AND recovery after canister resets)
+      const localTemplates = templateStore.getAll();
+      for (const t of localTemplates) {
+        if (!canisterIds.has(t.id)) {
+          try {
+            await _pushTemplateNow(t.id);
+          } catch (err) {
+            console.error("[backendSync] Failed to push template", t.id, err);
+            enqueue({ type: "pushTemplate", id: t.id, ts: Date.now() });
+          }
+        }
+      }
+
+      // Group canister blobs by template name, keep winner (highest updatedAt)
       const blobsByName = new Map<
         string,
         Array<{
@@ -316,32 +328,24 @@ export const backendSync = {
           group.push(blob);
           blobsByName.set(name, group);
         } catch {
-          // Malformed — treat id as name to avoid losing the blob
           const group = blobsByName.get(blob.id) ?? [];
           group.push(blob);
           blobsByName.set(blob.id, group);
         }
       }
 
-      // For each group: keep the one with highest updatedAt, delete the rest
       for (const [, group] of blobsByName) {
         if (group.length === 1) {
           applyTemplateBlob(group[0]);
           continue;
         }
-
-        // Sort descending by updatedAt — winner is first
         group.sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1));
-        const winner = group[0];
-        applyTemplateBlob(winner);
-
-        // Delete duplicates from canister (fire-and-forget)
+        applyTemplateBlob(group[0]);
         for (const dup of group.slice(1)) {
           actor.deleteTemplateBlob(dup.id).catch(() => {});
         }
       }
 
-      // Final pass: deduplicate localStorage in case it already had duplicates
       dedupeLocalStorageTemplatesByName();
     } catch {
       // Offline — silently continue with localStorage
@@ -349,18 +353,35 @@ export const backendSync = {
   },
 
   /**
+   * Directly push a template to the canister. Throws on failure (no silent catch).
+   * Use this for immediate sync — fall back to pushTemplate() if it throws.
+   */
+  async pushTemplateDirect(templateId: string): Promise<void> {
+    const actor = await getActor();
+    const template = templateStore.getById(templateId);
+    if (!template) throw new Error(`Template not found: ${templateId}`);
+    const dataJson = buildTemplateDataJson(templateId);
+    const updatedAt = BigInt(Date.now() + 1);
+    await actor.saveTemplateBlob({
+      id: templateId,
+      createdBy: template.createdBy ?? "",
+      updatedAt,
+      dataJson,
+    });
+    templateStore.update(templateId, { syncedAt: Number(updatedAt) } as any);
+  },
+
+  /**
    * Background-push a template to the canister after saving to localStorage.
    * Fire-and-forget. If offline, enqueues for later.
    */
   pushTemplate(templateId: string): void {
-    _pushTemplateNow(templateId).catch(() => {
-      enqueue({ type: "pushTemplate", id: templateId, ts: Date.now() });
-    });
+    enqueue({ type: "pushTemplate", id: templateId, ts: Date.now() });
+    flushQueue().catch(() => {});
   },
 
   /**
    * Background-delete a template from the canister.
-   * Fire-and-forget. If offline, enqueues for later.
    */
   deleteTemplate(templateId: string): void {
     _deleteTemplateNow(templateId).catch(() => {
@@ -370,8 +391,6 @@ export const backendSync = {
 
   /**
    * Load audit data for a specific site from the canister.
-   * If canister has newer data, updates localStorage.
-   * If offline, silently continues with localStorage data.
    */
   async loadAudit(siteId: string): Promise<void> {
     try {
@@ -390,7 +409,6 @@ export const backendSync = {
       const localTs = localAudit?.lastSavedAt ?? 0;
 
       if (remoteTs > localTs) {
-        // Canister has newer data — update localStorage
         if (localAudit) {
           auditStore.update(localAudit.id, {
             answersJson: blob.dataJson,
@@ -400,7 +418,6 @@ export const backendSync = {
             lastSavedAt: remoteTs,
           });
         } else {
-          // No local audit yet — create one
           auditStore.add({
             siteId,
             clientId: "",
@@ -421,8 +438,7 @@ export const backendSync = {
   },
 
   /**
-   * Background-push audit data to the canister after saving to localStorage.
-   * Fire-and-forget. If offline, enqueues for later.
+   * Background-push audit data to the canister.
    */
   pushAudit(siteId: string): void {
     _pushAuditNow(siteId).catch(() => {

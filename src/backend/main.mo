@@ -166,16 +166,16 @@ actor {
     lastSavedAt : Int; // Epoch millis for conflict resolution
   };
 
-  // Stable storage for appUsers — survives canister upgrades
-  var stableAppUsers : [(Text, AppUser)] = [];
-  let appUsers = Map.empty<Text, AppUser>(); // populated in postupgrade
+  // STABLE storage — survives ALL canister upgrades and deployments
+  stable var stableAppUsers : [(Text, AppUser)] = [];
+  stable var stableTemplateBlobs : [(Text, TemplateBlob)] = [];
+  stable var stableAuditBlobs : [(Text, AuditBlob)] = [];
+  stable var bootstrapUsed : Bool = false;
 
-  // Stable storage for template blobs
-  var stableTemplateBlobs : [(Text, TemplateBlob)] = [];
-  let templateBlobs = Map.empty<Text, TemplateBlob>(); // Populated in postupgrade
-
-  var stableAuditBlobs : [(Text, AuditBlob)] = [];
-  let auditBlobs = Map.empty<Text, AuditBlob>(); // Populated in postupgrade
+  // In-memory maps — populated from stable vars in postupgrade
+  let appUsers = Map.empty<Text, AppUser>();
+  let templateBlobs = Map.empty<Text, TemplateBlob>();
+  let auditBlobs = Map.empty<Text, AuditBlob>();
 
   // Internal Storage
   let userRecords = Map.empty<Principal, UserRecord>();
@@ -187,9 +187,6 @@ actor {
 
   // The setup passphrase for claiming admin role
   let ADMIN_SETUP_CODE : Text = "SWISH-SETUP-2026";
-
-  // Track if bootstrap has been used
-  var bootstrapUsed : Bool = false;
 
   // Internal Structures
   type AnswerKey = {
