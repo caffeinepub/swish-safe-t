@@ -32,17 +32,19 @@ import {
   Download,
   Pencil,
   Plus,
+  RefreshCw,
   Shield,
   ShieldCheck,
   ToggleLeft,
   Upload,
   Users,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
+import { backendSync } from "../lib/backendSync";
 import type { Session } from "../lib/session";
 import {
   type StoredUser,
@@ -90,14 +92,22 @@ export default function AdminPage({ session, onNavigate }: Props) {
     isEnabled: true,
   });
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState<StoredUser | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  const reload = () => setUsers(getUsers());
+  const reload = useCallback(() => setUsers(getUsers()), []);
 
+  // On mount: pull users from canister so this device sees the latest
   useEffect(() => {
-    setUsers(getUsers());
-  }, []);
+    reload();
+    setSyncing(true);
+    backendSync
+      .loadUsers()
+      .then(() => reload())
+      .catch(() => {})
+      .finally(() => setSyncing(false));
+  }, [reload]);
 
   const openAdd = () => {
     setEditingUser(null);
@@ -142,6 +152,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
     }
     setSaving(true);
     try {
+      let targetUsername: string;
       if (editingUser) {
         const updates: Partial<StoredUser> = {
           fullName: form.fullName.trim(),
@@ -152,9 +163,10 @@ export default function AdminPage({ session, onNavigate }: Props) {
           updates.password = form.password;
         }
         updateUser(editingUser.id, updates);
+        targetUsername = editingUser.username;
         toast.success("User updated");
       } else {
-        addUser({
+        const newUser = addUser({
           username: form.username.trim(),
           password: form.password,
           fullName: form.fullName.trim(),
@@ -163,10 +175,13 @@ export default function AdminPage({ session, onNavigate }: Props) {
           elevatedUntil: null,
           isEnabled: form.isEnabled,
         });
+        targetUsername = newUser.username;
         toast.success("User added successfully");
       }
       setShowForm(false);
       reload();
+      // Sync to canister in background
+      backendSync.pushUser(targetUsername);
     } catch (err) {
       toast.error("Failed to save user. Please try again.");
       console.error(err);
@@ -186,6 +201,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
       updateUser(u.id, { isEnabled: true });
       toast.success(`${u.fullName} enabled`);
       reload();
+      backendSync.pushUser(u.username);
     }
   };
 
@@ -198,6 +214,19 @@ export default function AdminPage({ session, onNavigate }: Props) {
       `${u.fullName} has been granted Temporary Admin for 24 hours`,
     );
     reload();
+    backendSync.pushUser(u.username);
+  };
+
+  const handleManualSync = () => {
+    setSyncing(true);
+    backendSync
+      .loadUsers()
+      .then(() => {
+        reload();
+        toast.success("Users synced from server");
+      })
+      .catch(() => toast.error("Sync failed — check your connection"))
+      .finally(() => setSyncing(false));
   };
 
   // Export users as JSON file
@@ -230,7 +259,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
         for (const u of imported) {
           if (!u.username || !u.password) continue;
           if (existingUsernames.has(u.username.toLowerCase())) continue;
-          addUser({
+          const newUser = addUser({
             username: u.username,
             password: u.password,
             fullName: u.fullName || u.username,
@@ -239,6 +268,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
             elevatedUntil: null,
             isEnabled: u.isEnabled ?? true,
           });
+          backendSync.pushUser(newUser.username);
           added++;
         }
         toast.success(
@@ -250,7 +280,6 @@ export default function AdminPage({ session, onNavigate }: Props) {
           "Failed to parse import file. Make sure it is a valid JSON export.",
         );
       }
-      // Reset input so same file can be re-imported if needed
       if (importInputRef.current) importInputRef.current.value = "";
     };
     reader.readAsText(file);
@@ -268,6 +297,12 @@ export default function AdminPage({ session, onNavigate }: Props) {
         <header className="bg-[#0d1912] border-b border-[#1e2e26] px-4 md:px-6 py-3 flex items-center gap-2 shrink-0">
           <Users className="h-5 w-5 text-[#8aad3a]" />
           <h1 className="text-lg font-bold text-white">Admin Panel</h1>
+          {syncing && (
+            <span className="ml-2 text-xs text-gray-500 flex items-center gap-1">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Syncing…
+            </span>
+          )}
         </header>
         <main className="flex-1 p-4 md:p-5 overflow-auto">
           <Card className="bg-[#1a2420] border-[#1e2e26]">
@@ -277,6 +312,20 @@ export default function AdminPage({ session, onNavigate }: Props) {
                 User Management
               </CardTitle>
               <div className="flex items-center gap-2 flex-wrap">
+                {/* Sync from server */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleManualSync}
+                  disabled={syncing}
+                  className="border-[#3a4f44] text-gray-300 hover:text-white gap-1.5"
+                  title="Pull latest users from server"
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`}
+                  />
+                  <span className="hidden sm:inline">Sync</span>
+                </Button>
                 {/* Import */}
                 <input
                   ref={importInputRef}
@@ -382,7 +431,11 @@ export default function AdminPage({ session, onNavigate }: Props) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className={`gap-1 text-xs ${u.isEnabled ? "text-gray-400 hover:text-red-400" : "text-green-400 hover:text-green-300"}`}
+                          className={`gap-1 text-xs ${
+                            u.isEnabled
+                              ? "text-gray-400 hover:text-red-400"
+                              : "text-green-400 hover:text-green-300"
+                          }`}
                           onClick={() => handleToggleEnabled(u)}
                           data-ocid={`admin.secondary_button.${idx + 1}`}
                         >
@@ -453,35 +506,27 @@ export default function AdminPage({ session, onNavigate }: Props) {
           <Card className="bg-[#1a2420] border-[#1e2e26] mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-white text-sm flex items-center gap-2">
-                <Download className="h-4 w-4 text-[#6aab7e]" />
-                Cross-Device User Sharing
+                <RefreshCw className="h-4 w-4 text-[#6aab7e]" />
+                Cross-Device User Sync
               </CardTitle>
             </CardHeader>
             <CardContent className="text-xs text-gray-400 space-y-2">
               <p>
-                <strong className="text-gray-300">
-                  To share users with another device:
-                </strong>
+                Users are automatically synced to the server. Any user you add
+                or update here is instantly pushed to the canister so other
+                devices can access it. When you open this page, the latest user
+                list is pulled from the server automatically.
               </p>
-              <ol className="list-decimal list-inside space-y-1 ml-1">
-                <li>
-                  Click <strong className="text-gray-300">Export</strong> above
-                  to download{" "}
-                  <code className="bg-[#111c18] px-1 rounded">
-                    swish-users-export.json
-                  </code>
-                </li>
-                <li>Open the app on the other device and log in as Admin</li>
-                <li>
-                  Go to Admin Panel and click{" "}
-                  <strong className="text-gray-300">Import</strong>
-                </li>
-                <li>
-                  Select the exported JSON file — users are merged instantly
-                </li>
-              </ol>
-              <p className="text-gray-500 mt-2">
-                Duplicate usernames are automatically skipped during import.
+              <p>
+                <strong className="text-gray-300">New device setup:</strong> Log
+                in as Admin on the new device, open Admin Panel, and click{" "}
+                <strong className="text-gray-300">Sync</strong> to pull all
+                users from the server. If sync is unavailable (offline or
+                canister cold-starting), use Export/Import as a fallback.
+              </p>
+              <p className="text-gray-500">
+                The Sync button also re-pushes any local users that may be
+                missing from the server (recovery after a canister reset).
               </p>
             </CardContent>
           </Card>
@@ -632,6 +677,7 @@ export default function AdminPage({ session, onNavigate }: Props) {
                   toast.success(`${confirmDisable.fullName} disabled`);
                   setConfirmDisable(null);
                   reload();
+                  backendSync.pushUser(confirmDisable.username);
                 }
               }}
             >

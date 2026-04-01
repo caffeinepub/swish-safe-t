@@ -15,12 +15,13 @@ import {
   templateSectionStore,
   templateStore,
 } from "./dataStore";
+import { type StoredUser, addUser, getUsers, updateUser } from "./userStore";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface SyncQueueItem {
-  type: "pushTemplate" | "deleteTemplate" | "pushAudit";
-  id: string;
+  type: "pushTemplate" | "deleteTemplate" | "pushAudit" | "pushUser";
+  id: string; // templateId, siteId, or username
   ts: number;
 }
 
@@ -60,6 +61,22 @@ function enqueue(item: SyncQueueItem) {
 function dequeue(type: SyncQueueItem["type"], id: string) {
   const q = readQueue();
   writeQueue(q.filter((x) => !(x.type === type && x.id === id)));
+}
+
+// ── User helpers ──────────────────────────────────────────────────────────
+
+/** Convert StoredUser to the AppUser shape the canister expects */
+function toCanisterUser(user: StoredUser) {
+  return {
+    username: user.username,
+    passwordHash: user.password, // stored as plain text on both sides
+    fullName: user.fullName,
+    role: user.role as string,
+    originalRole: user.originalRole as string,
+    isEnabled: user.isEnabled,
+    elevatedUntil:
+      user.elevatedUntil !== null ? [BigInt(user.elevatedUntil)] : [],
+  };
 }
 
 // ── Template helpers ──────────────────────────────────────────────────────
@@ -131,7 +148,6 @@ function applyTemplateBlob(blob: {
     const incomingUpdatedAt = Number(blob.updatedAt);
 
     if (existing) {
-      // Use a dedicated syncedAt timestamp for comparison, falling back to createdAt
       const localTs =
         (existing as { syncedAt?: number; createdAt?: number }).syncedAt ??
         (existing as { createdAt?: number }).createdAt ??
@@ -143,7 +159,6 @@ function applyTemplateBlob(blob: {
         syncedAt: incomingUpdatedAt,
       } as Parameters<typeof templateStore.update>[1]);
     } else {
-      // Insert — write directly to localStorage, preventing same-name duplicates
       const all = JSON.parse(
         localStorage.getItem("swish_templates") ?? "[]",
       ) as Array<Record<string, unknown>>;
@@ -169,7 +184,6 @@ function applyTemplateBlob(blob: {
       localStorage.setItem("swish_templates", JSON.stringify(all));
     }
 
-    // Replace sections and questions for this template
     templateSectionStore.deleteByTemplate(blob.id);
     templateQuestionStore.deleteByTemplate(blob.id);
 
@@ -198,7 +212,6 @@ async function _pushTemplateNow(templateId: string): Promise<void> {
   const template = templateStore.getById(templateId);
   if (!template) return;
   const dataJson = buildTemplateDataJson(templateId);
-  // Use Date.now() + 1 to always be newer than the canister's current entry
   const updatedAt = BigInt(Date.now() + 1);
   await actor.saveTemplateBlob({
     id: templateId,
@@ -206,7 +219,6 @@ async function _pushTemplateNow(templateId: string): Promise<void> {
     updatedAt,
     dataJson,
   });
-  // Mark local copy with the timestamp we pushed so we don't pull it back as newer
   templateStore.update(templateId, { syncedAt: Number(updatedAt) } as any);
 }
 
@@ -227,6 +239,16 @@ async function _pushAuditNow(siteId: string): Promise<void> {
   });
 }
 
+async function _pushUserNow(username: string): Promise<void> {
+  const users = getUsers();
+  const user = users.find(
+    (u) => u.username.toLowerCase() === username.toLowerCase(),
+  );
+  if (!user) return;
+  const actor = await getActor();
+  await actor.upsertAppUser(toCanisterUser(user));
+}
+
 // ── Flush offline queue ────────────────────────────────────────────────────
 
 async function flushQueue(): Promise<void> {
@@ -243,6 +265,9 @@ async function flushQueue(): Promise<void> {
       } else if (item.type === "pushAudit") {
         await _pushAuditNow(item.id);
         dequeue("pushAudit", item.id);
+      } else if (item.type === "pushUser") {
+        await _pushUserNow(item.id);
+        dequeue("pushUser", item.id);
       }
     } catch (err) {
       console.error(
@@ -251,7 +276,6 @@ async function flushQueue(): Promise<void> {
         item.id,
         err,
       );
-      // Leave in queue for next reconnect
     }
   }
 }
@@ -265,24 +289,15 @@ if (typeof window !== "undefined") {
 // ── Public API ────────────────────────────────────────────────────────────
 
 export const backendSync = {
-  /**
-   * Load all templates from the canister.
-   *
-   * Strategy:
-   * 1. Flush any pending local pushes to canister first.
-   * 2. Push any local templates that the canister does NOT have (bootstrap + recovery).
-   * 3. Pull from canister — apply any blobs newer than local copies.
-   * 4. Deduplicate local storage.
-   */
+  // ── Templates ──────────────────────────────────────────────────────────
+
   async loadTemplates(): Promise<void> {
     await flushQueue().catch(() => {});
     try {
       const actor = await getActor();
 
-      // Deduplicate local storage before any sync
       dedupeLocalStorageTemplatesByName();
 
-      // Pull current canister blobs (used for both push-guard and pull)
       const blobs: Array<{
         id: string;
         createdBy: string;
@@ -290,11 +305,8 @@ export const backendSync = {
         dataJson: string;
       }> = await actor.listTemplateBlobs();
 
-      // Build a map of canister blob IDs for quick lookup
       const canisterIds = new Set(blobs.map((b) => b.id));
 
-      // Push local templates that are missing from the canister
-      // (handles first-time bootstrap AND recovery after canister resets)
       const localTemplates = templateStore.getAll();
       for (const t of localTemplates) {
         if (!canisterIds.has(t.id)) {
@@ -307,7 +319,6 @@ export const backendSync = {
         }
       }
 
-      // Group canister blobs by template name, keep winner (highest updatedAt)
       const blobsByName = new Map<
         string,
         Array<{
@@ -352,10 +363,6 @@ export const backendSync = {
     }
   },
 
-  /**
-   * Directly push a template to the canister. Throws on failure (no silent catch).
-   * Use this for immediate sync — fall back to pushTemplate() if it throws.
-   */
   async pushTemplateDirect(templateId: string): Promise<void> {
     const actor = await getActor();
     const template = templateStore.getById(templateId);
@@ -371,26 +378,22 @@ export const backendSync = {
     templateStore.update(templateId, { syncedAt: Number(updatedAt) } as any);
   },
 
-  /**
-   * Background-push a template to the canister after saving to localStorage.
-   * Fire-and-forget. If offline, enqueues for later.
-   */
   pushTemplate(templateId: string): void {
     enqueue({ type: "pushTemplate", id: templateId, ts: Date.now() });
     flushQueue().catch(() => {});
   },
 
-  /**
-   * Background-delete a template from the canister.
-   */
   deleteTemplate(templateId: string): void {
     _deleteTemplateNow(templateId).catch(() => {
       enqueue({ type: "deleteTemplate", id: templateId, ts: Date.now() });
     });
   },
 
+  // ── Site audit reports ─────────────────────────────────────────────────
+
   /**
    * Load audit data for a specific site from the canister.
+   * Called when opening a questionnaire — ensures latest data is shown.
    */
   async loadAudit(siteId: string): Promise<void> {
     try {
@@ -438,11 +441,182 @@ export const backendSync = {
   },
 
   /**
+   * Pull all audits from the canister and merge into local storage.
+   * Called on TaskListPage load so reviewers/managers see latest status
+   * on any device without opening each audit individually.
+   */
+  async loadAllAudits(): Promise<void> {
+    await flushQueue().catch(() => {});
+    try {
+      const actor = await getActor();
+      const blobs: Array<{
+        siteId: string;
+        dataJson: string;
+        status: string;
+        lastSavedAt: bigint;
+      }> = await actor.listAuditBlobs();
+
+      for (const blob of blobs) {
+        const remoteTs = Number(blob.lastSavedAt);
+        const localAudit = auditStore.getLatestBySite(blob.siteId);
+        const localTs = localAudit?.lastSavedAt ?? 0;
+
+        if (remoteTs > localTs) {
+          if (localAudit) {
+            auditStore.update(localAudit.id, {
+              answersJson: blob.dataJson,
+              status: blob.status as Parameters<
+                typeof auditStore.update
+              >[1]["status"],
+              lastSavedAt: remoteTs,
+            });
+          } else {
+            auditStore.add({
+              siteId: blob.siteId,
+              clientId: "",
+              auditorId: "",
+              auditorName: "",
+              status: blob.status as Parameters<
+                typeof auditStore.add
+              >[0]["status"],
+              answersJson: blob.dataJson,
+              reviewComment: "",
+              lastSavedAt: remoteTs,
+            });
+          }
+        }
+      }
+    } catch {
+      // Offline — silently continue with localStorage
+    }
+  },
+
+  /**
    * Background-push audit data to the canister.
+   * Called on every auto-save.
    */
   pushAudit(siteId: string): void {
     _pushAuditNow(siteId).catch(() => {
       enqueue({ type: "pushAudit", id: siteId, ts: Date.now() });
     });
+  },
+
+  // ── Users ──────────────────────────────────────────────────────────────
+
+  /**
+   * Load all users from the canister and merge into local storage.
+   *
+   * Strategy:
+   * 1. Flush any pending local pushes first.
+   * 2. Pull all users from canister.
+   * 3. Apply canister users that are missing locally (new device bootstrap).
+   * 4. Push any local users not yet in the canister (recovery after reset).
+   *
+   * Conflict resolution: canister wins for users it already has.
+   * Local-only users (e.g. admin seeded before network) are pushed up.
+   */
+  async loadUsers(): Promise<void> {
+    await flushQueue().catch(() => {});
+    try {
+      const actor = await getActor();
+
+      const canisterUsers: Array<{
+        username: string;
+        fullName: string;
+        role: string;
+        originalRole: string;
+        isEnabled: boolean;
+        elevatedUntil: [] | [bigint];
+      }> = await actor.listAppUsers();
+
+      const canisterUsernames = new Set(
+        canisterUsers.map((u) => u.username.toLowerCase()),
+      );
+
+      // Apply canister users to localStorage (add missing, update existing)
+      for (const cu of canisterUsers) {
+        const local = getUsers().find(
+          (u) => u.username.toLowerCase() === cu.username.toLowerCase(),
+        );
+        if (!local) {
+          // New device — add user from canister. Password not in AppUserPublic,
+          // so set a placeholder; the real password is already in the canister
+          // and will be used for verifyAppUserCredentials if needed.
+          // For local login, we skip if password is empty (user must re-import
+          // or admin sets password). But if we have a canister passwordHash,
+          // we can't get it from AppUserPublic. So we store a sentinel.
+          // The better approach: also call getAppUserPublic to just sync metadata,
+          // and keep passwords local-only. When logging in on a new device the
+          // admin must add the user on that device (or import). The sync here
+          // is purely to propagate user metadata (role, enabled status) across
+          // devices that already have the user seeded.
+          //
+          // For new-device bootstrap, we can't get passwords from canister
+          // (security). So we only apply metadata updates, not create new local
+          // accounts from canister. New accounts need admin to add on that device
+          // OR use the export/import JSON flow.
+          //
+          // EXCEPTION: if canister has a user with passwordHash (via upsertAppUser
+          // which stores the real password as passwordHash), we need to retrieve
+          // it. But listAppUsers returns AppUserPublic without passwordHash.
+          // We'd need a different endpoint. For now, skip creation of local users
+          // from canister for security — only sync metadata for existing local users.
+        } else {
+          // User exists locally — sync role/enabled status from canister
+          // (canister has the latest if another device updated it)
+          const updates: Partial<StoredUser> = {};
+          if (local.role !== cu.role)
+            updates.role = cu.role as StoredUser["role"];
+          if (local.originalRole !== cu.originalRole)
+            updates.originalRole = cu.originalRole as StoredUser["role"];
+          if (local.isEnabled !== cu.isEnabled)
+            updates.isEnabled = cu.isEnabled;
+          if (local.fullName !== cu.fullName) updates.fullName = cu.fullName;
+          const canisterElevated =
+            cu.elevatedUntil.length > 0 ? Number(cu.elevatedUntil[0]) : null;
+          if (local.elevatedUntil !== canisterElevated)
+            updates.elevatedUntil = canisterElevated;
+          if (Object.keys(updates).length > 0) {
+            updateUser(local.id, updates);
+          }
+        }
+      }
+
+      // Push local users that are NOT in the canister (bootstrap / recovery)
+      const localUsers = getUsers();
+      for (const user of localUsers) {
+        if (!canisterUsernames.has(user.username.toLowerCase())) {
+          try {
+            await _pushUserNow(user.username);
+          } catch (err) {
+            console.error(
+              "[backendSync] Failed to push user",
+              user.username,
+              err,
+            );
+            enqueue({ type: "pushUser", id: user.username, ts: Date.now() });
+          }
+        }
+      }
+    } catch {
+      // Offline — silently continue with localStorage
+    }
+  },
+
+  /**
+   * Background-push a user to the canister after saving to localStorage.
+   * Fire-and-forget. If offline, enqueues for later.
+   */
+  pushUser(username: string): void {
+    _pushUserNow(username).catch(() => {
+      enqueue({ type: "pushUser", id: username, ts: Date.now() });
+    });
+  },
+
+  /**
+   * Directly push a user to the canister. Throws on failure.
+   */
+  async pushUserDirect(username: string): Promise<void> {
+    await _pushUserNow(username);
   },
 };

@@ -10,14 +10,16 @@ import {
   ClipboardList,
   Download,
   Printer,
+  RefreshCw,
   Search,
   Star,
   TrendingUp,
 } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { NavPage } from "../App";
 import MobileNav from "../components/MobileNav";
 import Sidebar from "../components/Sidebar";
+import { backendSync } from "../lib/backendSync";
 import { auditStore, clientStore, siteStore } from "../lib/dataStore";
 import type { Audit, Site } from "../lib/dataStore";
 import type { Session } from "../lib/session";
@@ -91,12 +93,26 @@ export default function TaskListPage({ session, onNavigate }: Props) {
   const role = session.role;
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-
-  const assignedSites = useMemo(
-    () => siteStore.getAssignedToUser(session.userId, role),
-    [session.userId, role],
+  const [syncing, setSyncing] = useState(false);
+  const [assignedSites, setAssignedSites] = useState(() =>
+    siteStore.getAssignedToUser(session.userId, role),
   );
-  const allAudits = auditStore.getAll();
+  const [allAudits, setAllAudits] = useState(() => auditStore.getAll());
+
+  const refreshData = useCallback(() => {
+    setAssignedSites(siteStore.getAssignedToUser(session.userId, role));
+    setAllAudits(auditStore.getAll());
+  }, [session.userId, role]);
+
+  // Pull all audit reports from canister on mount so latest status is shown
+  useEffect(() => {
+    setSyncing(true);
+    backendSync
+      .loadAllAudits()
+      .then(() => refreshData())
+      .catch(() => {})
+      .finally(() => setSyncing(false));
+  }, [refreshData]);
   const allClients = clientStore.getAll();
 
   const clientMap = useMemo(() => {
@@ -156,6 +172,15 @@ export default function TaskListPage({ session, onNavigate }: Props) {
     onNavigate({ name: "questionnaire", siteId: site.id, auditId: audit?.id });
   };
 
+  const handleManualSync = () => {
+    setSyncing(true);
+    backendSync
+      .loadAllAudits()
+      .then(() => refreshData())
+      .catch(() => {})
+      .finally(() => setSyncing(false));
+  };
+
   const SUMMARY_CARDS = [
     {
       label: "Assigned Reports",
@@ -212,9 +237,17 @@ export default function TaskListPage({ session, onNavigate }: Props) {
           currentPage="task-list"
           onNavigate={onNavigate}
         />
-        <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 shrink-0">
-          <h1 className="text-lg font-bold text-white">Task List</h1>
-          <p className="text-xs text-gray-500">Your assigned site audits</p>
+        <header className="bg-[#0d1912] border-b border-[#1e2e26] px-6 py-3 shrink-0 flex items-center gap-2">
+          <div>
+            <h1 className="text-lg font-bold text-white">Task List</h1>
+            <p className="text-xs text-gray-500">Your assigned site audits</p>
+          </div>
+          {syncing && (
+            <span className="ml-2 text-xs text-gray-500 flex items-center gap-1">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Syncing…
+            </span>
+          )}
         </header>
         <main className="flex-1 p-5 overflow-auto">
           {/* Summary Cards */}
@@ -239,6 +272,18 @@ export default function TaskListPage({ session, onNavigate }: Props) {
           <div className="bg-[#1a2420] border border-[#1e2e26] rounded-xl overflow-hidden">
             {/* Toolbar */}
             <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e2e26]">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-gray-400 hover:text-white border border-[#3a4f44]"
+                onClick={handleManualSync}
+                disabled={syncing}
+                title="Refresh report statuses from server"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`}
+                />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
