@@ -134,8 +134,8 @@ export default function MobileNav({ session, currentPage, onNavigate }: Props) {
               )}
             {(role === "admin" || role === "manager") &&
               nav("templates", "Templates", <FileText className="h-4 w-4" />)}
-            {role === "admin" &&
-              nav("admin", "Admin Panel", <Users className="h-4 w-4" />)}
+            {(role === "admin" || role === "manager") &&
+              nav("admin", "Users Panel", <Users className="h-4 w-4" />)}
           </nav>
           {/* Logout */}
           <div className="absolute bottom-0 left-0 right-0 px-2 pb-4 border-t border-[#1e2e26] pt-2">

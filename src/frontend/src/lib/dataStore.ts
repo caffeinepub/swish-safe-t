@@ -22,10 +22,13 @@ export interface Site {
   scheduledAuditDate: string;
   auditorId: string;
   auditorName: string;
+  auditorUsername?: string; // stable cross-device identifier
   reviewerId: string;
   reviewerName: string;
+  reviewerUsername?: string; // stable cross-device identifier
   managerId: string;
   managerName: string;
+  managerUsername?: string; // stable cross-device identifier
   isEnabled: boolean;
   createdBy?: string;
   templateId?: string;
@@ -172,15 +175,38 @@ export const siteStore = {
     ),
   getById: (id: string): Site | null =>
     loadKey<Site>("swish_sites").find((s) => s.id === id) ?? null,
-  getAssignedToUser: (userId: string, role: string): Site[] => {
+  getAssignedToUser: (
+    userId: string,
+    role: string,
+    username?: string,
+  ): Site[] => {
     const all = loadKey<Site>("swish_sites").filter((s) => s.isEnabled);
     if (role === "admin") return all;
     if (role === "auditor")
       return all.filter(
-        (s) => s.auditorId === userId || s.assignedAuditorId === userId,
+        (s) =>
+          s.auditorId === userId ||
+          s.assignedAuditorId === userId ||
+          (username &&
+            s.auditorUsername &&
+            s.auditorUsername.toLowerCase() === username.toLowerCase()),
       );
-    if (role === "reviewer") return all.filter((s) => s.reviewerId === userId);
-    if (role === "manager") return all.filter((s) => s.managerId === userId);
+    if (role === "reviewer")
+      return all.filter(
+        (s) =>
+          s.reviewerId === userId ||
+          (username &&
+            s.reviewerUsername &&
+            s.reviewerUsername.toLowerCase() === username.toLowerCase()),
+      );
+    if (role === "manager")
+      return all.filter(
+        (s) =>
+          s.managerId === userId ||
+          (username &&
+            s.managerUsername &&
+            s.managerUsername.toLowerCase() === username.toLowerCase()),
+      );
     return [];
   },
   add: (s: Omit<Site, "id">): Site => {

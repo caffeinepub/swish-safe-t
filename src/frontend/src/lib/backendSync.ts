@@ -520,62 +520,80 @@ export const backendSync = {
     try {
       const actor = await getActor();
 
+      // Use listAppUsersWithPasswords so new devices can fully bootstrap
+      // user accounts (including passwords) from the canister.
       const canisterUsers: Array<{
         username: string;
         fullName: string;
-        role: string;
-        originalRole: string;
+        role: { admin?: null; manager?: null; reviewer?: null; auditor?: null };
+        originalRole: {
+          admin?: null;
+          manager?: null;
+          reviewer?: null;
+          auditor?: null;
+        };
         isEnabled: boolean;
         elevatedUntil: [] | [bigint];
-      }> = await actor.listAppUsers();
+        passwordHash: string;
+      }> = await actor.listAppUsersWithPasswords();
 
       const canisterUsernames = new Set(
         canisterUsers.map((u) => u.username.toLowerCase()),
       );
+
+      // Helper: convert Motoko variant role to string
+      function roleToStr(r: {
+        admin?: null;
+        manager?: null;
+        reviewer?: null;
+        auditor?: null;
+      }): StoredUser["role"] {
+        if ("admin" in r) return "admin";
+        if ("manager" in r) return "manager";
+        if ("reviewer" in r) return "reviewer";
+        return "auditor";
+      }
 
       // Apply canister users to localStorage (add missing, update existing)
       for (const cu of canisterUsers) {
         const local = getUsers().find(
           (u) => u.username.toLowerCase() === cu.username.toLowerCase(),
         );
+        const role = roleToStr(cu.role);
+        const originalRole = roleToStr(cu.originalRole);
+        const elevatedUntil =
+          cu.elevatedUntil.length > 0 ? Number(cu.elevatedUntil[0]) : null;
+
         if (!local) {
-          // New device — add user from canister. Password not in AppUserPublic,
-          // so set a placeholder; the real password is already in the canister
-          // and will be used for verifyAppUserCredentials if needed.
-          // For local login, we skip if password is empty (user must re-import
-          // or admin sets password). But if we have a canister passwordHash,
-          // we can't get it from AppUserPublic. So we store a sentinel.
-          // The better approach: also call getAppUserPublic to just sync metadata,
-          // and keep passwords local-only. When logging in on a new device the
-          // admin must add the user on that device (or import). The sync here
-          // is purely to propagate user metadata (role, enabled status) across
-          // devices that already have the user seeded.
-          //
-          // For new-device bootstrap, we can't get passwords from canister
-          // (security). So we only apply metadata updates, not create new local
-          // accounts from canister. New accounts need admin to add on that device
-          // OR use the export/import JSON flow.
-          //
-          // EXCEPTION: if canister has a user with passwordHash (via upsertAppUser
-          // which stores the real password as passwordHash), we need to retrieve
-          // it. But listAppUsers returns AppUserPublic without passwordHash.
-          // We'd need a different endpoint. For now, skip creation of local users
-          // from canister for security — only sync metadata for existing local users.
+          // New device: create user account locally from canister data.
+          // passwordHash field stores the plain-text password (upsertAppUser sends it as-is).
+          addUser({
+            username: cu.username,
+            password: cu.passwordHash,
+            fullName: cu.fullName,
+            role,
+            originalRole,
+            elevatedUntil,
+            isEnabled: cu.isEnabled,
+          });
         } else {
-          // User exists locally — sync role/enabled status from canister
-          // (canister has the latest if another device updated it)
+          // User exists locally — sync role/enabled/fullName status from canister
           const updates: Partial<StoredUser> = {};
-          if (local.role !== cu.role)
-            updates.role = cu.role as StoredUser["role"];
-          if (local.originalRole !== cu.originalRole)
-            updates.originalRole = cu.originalRole as StoredUser["role"];
+          if (local.role !== role) updates.role = role;
+          if (local.originalRole !== originalRole)
+            updates.originalRole = originalRole;
           if (local.isEnabled !== cu.isEnabled)
             updates.isEnabled = cu.isEnabled;
           if (local.fullName !== cu.fullName) updates.fullName = cu.fullName;
-          const canisterElevated =
-            cu.elevatedUntil.length > 0 ? Number(cu.elevatedUntil[0]) : null;
-          if (local.elevatedUntil !== canisterElevated)
-            updates.elevatedUntil = canisterElevated;
+          if (local.elevatedUntil !== elevatedUntil)
+            updates.elevatedUntil = elevatedUntil;
+          // Also sync password if canister has a non-empty one and local password is placeholder
+          if (
+            cu.passwordHash &&
+            (!local.password || local.password === "__canister_sync__")
+          ) {
+            updates.password = cu.passwordHash;
+          }
           if (Object.keys(updates).length > 0) {
             updateUser(local.id, updates);
           }

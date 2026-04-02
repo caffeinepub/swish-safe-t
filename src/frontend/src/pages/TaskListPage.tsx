@@ -95,14 +95,16 @@ export default function TaskListPage({ session, onNavigate }: Props) {
   const [search, setSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [assignedSites, setAssignedSites] = useState(() =>
-    siteStore.getAssignedToUser(session.userId, role),
+    siteStore.getAssignedToUser(session.userId, role, session.username),
   );
   const [allAudits, setAllAudits] = useState(() => auditStore.getAll());
 
   const refreshData = useCallback(() => {
-    setAssignedSites(siteStore.getAssignedToUser(session.userId, role));
+    setAssignedSites(
+      siteStore.getAssignedToUser(session.userId, role, session.username),
+    );
     setAllAudits(auditStore.getAll());
-  }, [session.userId, role]);
+  }, [session.userId, session.username, role]);
 
   // Pull all audit reports from canister on mount so latest status is shown
   useEffect(() => {

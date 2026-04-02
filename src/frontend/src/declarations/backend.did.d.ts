@@ -163,6 +163,7 @@ export interface _SERVICE {
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'listAppUsers' : ActorMethod<[], Array<AppUserPublic>>,
+  'listAppUsersWithPasswords' : ActorMethod<[], Array<AppUser>>,
   'listAuditBlobs' : ActorMethod<[], Array<AuditBlob>>,
   'listClients' : ActorMethod<[], Array<Client>>,
   'listReports' : ActorMethod<[], Array<Report>>,

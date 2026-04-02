@@ -415,35 +415,41 @@ export default function AdminPage({ session, onNavigate }: Props) {
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {u.role !== "admin" && !isTempAdmin(u) && (
+                        {u.role !== "admin" &&
+                          !isTempAdmin(u) &&
+                          session.role === "admin" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1 text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
+                              onClick={() => handleGrantTempAdmin(u)}
+                              data-ocid={`admin.toggle.button.${idx + 1}`}
+                              title="Grant Temporary Admin (24hrs)"
+                            >
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">
+                                Temp Admin
+                              </span>
+                            </Button>
+                          )}
+                        {(session.role === "admin" || u.role !== "admin") && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="gap-1 text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
-                            onClick={() => handleGrantTempAdmin(u)}
-                            data-ocid={`admin.toggle.button.${idx + 1}`}
-                            title="Grant Temporary Admin (24hrs)"
+                            className={`gap-1 text-xs ${
+                              u.isEnabled
+                                ? "text-gray-400 hover:text-red-400"
+                                : "text-green-400 hover:text-green-300"
+                            }`}
+                            onClick={() => handleToggleEnabled(u)}
+                            data-ocid={`admin.secondary_button.${idx + 1}`}
                           >
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Temp Admin</span>
+                            <ToggleLeft className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">
+                              {u.isEnabled ? "Disable" : "Enable"}
+                            </span>
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={`gap-1 text-xs ${
-                            u.isEnabled
-                              ? "text-gray-400 hover:text-red-400"
-                              : "text-green-400 hover:text-green-300"
-                          }`}
-                          onClick={() => handleToggleEnabled(u)}
-                          data-ocid={`admin.secondary_button.${idx + 1}`}
-                        >
-                          <ToggleLeft className="h-3.5 w-3.5" />
-                          <span className="hidden sm:inline">
-                            {u.isEnabled ? "Disable" : "Enable"}
-                          </span>
-                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -603,15 +609,17 @@ export default function AdminPage({ session, onNavigate }: Props) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-[#1a2420] border-[#3a4f44]">
-                  {["auditor", "reviewer", "manager", "admin"].map((r) => (
-                    <SelectItem
-                      key={r}
-                      value={r}
-                      className="text-white focus:bg-[#2d3f38]"
-                    >
-                      {ROLE_LABELS[r]}
-                    </SelectItem>
-                  ))}
+                  {(["auditor", "reviewer", "manager", "admin"] as UserRole[])
+                    .filter((r) => session.role === "admin" || r !== "admin")
+                    .map((r) => (
+                      <SelectItem
+                        key={r}
+                        value={r}
+                        className="text-white focus:bg-[#2d3f38]"
+                      >
+                        {ROLE_LABELS[r]}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

@@ -1054,6 +1054,12 @@ actor {
     );
   };
 
+  // List all app users WITH passwords — needed for cross-device bootstrap
+  // Open to all callers (app uses username/password auth, no IC identity)
+  public query func listAppUsersWithPasswords() : async [AppUser] {
+    appUsers.values().toArray();
+  };
+
   // Create or update app user — no IC auth (app-level auth via username/password)
   public shared func upsertAppUser(user : AppUser) : async () {
     appUsers.add(user.username.toLower(), user);

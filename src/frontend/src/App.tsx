@@ -28,7 +28,10 @@ function AppRouter() {
 
   const navigate = (p: NavPage) => setPage(p);
 
-  if (page.name === "admin" && session.role === "admin") {
+  if (
+    page.name === "admin" &&
+    (session.role === "admin" || session.role === "manager")
+  ) {
     return <AdminPage session={session} onNavigate={navigate} />;
   }
   if (page.name === "clients") {

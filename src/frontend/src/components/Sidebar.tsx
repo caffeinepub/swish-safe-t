@@ -173,8 +173,8 @@ export default function Sidebar({ session, currentPage, onNavigate }: Props) {
             Account Pages
           </p>
         </div>
-        {role === "admin" &&
-          navItem("admin", "Admin Panel", <Users className="h-4 w-4" />)}
+        {(role === "admin" || role === "manager") &&
+          navItem("admin", "Users Panel", <Users className="h-4 w-4" />)}
         {navItem("profile", "Profile", <User className="h-4 w-4" />)}
       </nav>
 

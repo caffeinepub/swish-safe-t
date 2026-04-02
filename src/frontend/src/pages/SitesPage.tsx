@@ -240,6 +240,7 @@ export default function SitesPage({
       if (role === "reviewer" || role === "manager" || role === "admin") {
         updates.auditorId = assignForm.auditorId;
         updates.auditorName = auditor?.fullName ?? "";
+        updates.auditorUsername = auditor?.username ?? "";
         updates.assignedAuditorId = assignForm.auditorId;
         updates.assignedAuditorName = auditor?.fullName ?? "";
       }
@@ -247,11 +248,13 @@ export default function SitesPage({
       if (role === "manager" || role === "admin") {
         updates.reviewerId = effectiveReviewerId;
         updates.reviewerName = reviewer?.fullName ?? "";
+        updates.reviewerUsername = reviewer?.username ?? "";
       }
       // Admin can also change Manager
       if (role === "admin") {
         updates.managerId = effectiveManagerId;
         updates.managerName = manager?.fullName ?? "";
+        updates.managerUsername = manager?.username ?? "";
       }
 
       siteStore.update(assignSite.id, updates);
@@ -301,15 +304,21 @@ export default function SitesPage({
     const auditorName = auditor?.fullName ?? "";
     const reviewerName = reviewer?.fullName ?? "";
     const managerName = manager?.fullName ?? "";
+    const auditorUsername = auditor?.username ?? "";
+    const reviewerUsername = reviewer?.username ?? "";
+    const managerUsername = manager?.username ?? "";
     try {
       const payload = {
         ...form,
         auditorId: form.auditorId,
         auditorName,
+        auditorUsername,
         reviewerId: effectiveReviewerId,
         reviewerName,
+        reviewerUsername,
         managerId: effectiveManagerId,
         managerName,
+        managerUsername,
         // Keep legacy fields in sync so the || fallback always shows correct data
         assignedAuditorId: form.auditorId,
         assignedAuditorName: auditorName,
