@@ -150,13 +150,40 @@ export default function SitesPage({
 
   const templates = templateStore.getAll();
 
-  // Load users from localStorage (same source as Admin Panel)
-  const users = getUsers().filter((u) => u.isEnabled);
+  // Load users from localStorage (reactive — refreshes on mount)
+  const [users, setUsers] = useState<StoredUser[]>(() =>
+    getUsers().filter((u) => u.isEnabled),
+  );
+  useEffect(() => {
+    setUsers(getUsers().filter((u) => u.isEnabled));
+  }, []);
   const auditors = users.filter((u) => u.role === "auditor");
   const reviewers = users.filter((u) => u.role === "reviewer");
   const managers = users.filter(
     (u) => u.role === "manager" || u.role === "admin",
   );
+
+  // Live-resolve a user's display name from current userStore.
+  // First tries by ID, then by username (stable cross-device identifier).
+  // Falls back to the stored name string if neither is found.
+  const resolveUserName = (
+    userId: string,
+    fallback: string,
+    username?: string,
+  ): string => {
+    if (userId) {
+      const byId = users.find((u) => u.id === userId);
+      if (byId) return byId.fullName?.trim() || byId.username;
+    }
+    if (username) {
+      const byUsername = users.find(
+        (u) => u.username.toLowerCase() === username.toLowerCase(),
+      );
+      if (byUsername) return byUsername.fullName?.trim() || byUsername.username;
+    }
+    // Last resort: use the stored name (may be stale but better than blank)
+    return fallback || username || "";
+  };
 
   const [sites, setSites] = useState<Site[]>(() =>
     siteStore.getByClient(clientId),
@@ -235,25 +262,27 @@ export default function SitesPage({
         : undefined;
 
       const updates: Partial<Site> = {};
+      const nameOf = (u: typeof auditor) =>
+        u ? u.fullName?.trim() || u.username : "";
 
       // Reviewer can only change Auditor
       if (role === "reviewer" || role === "manager" || role === "admin") {
         updates.auditorId = assignForm.auditorId;
-        updates.auditorName = auditor?.fullName ?? "";
+        updates.auditorName = nameOf(auditor);
         updates.auditorUsername = auditor?.username ?? "";
         updates.assignedAuditorId = assignForm.auditorId;
-        updates.assignedAuditorName = auditor?.fullName ?? "";
+        updates.assignedAuditorName = nameOf(auditor);
       }
       // Manager can also change Reviewer
       if (role === "manager" || role === "admin") {
         updates.reviewerId = effectiveReviewerId;
-        updates.reviewerName = reviewer?.fullName ?? "";
+        updates.reviewerName = nameOf(reviewer);
         updates.reviewerUsername = reviewer?.username ?? "";
       }
       // Admin can also change Manager
       if (role === "admin") {
         updates.managerId = effectiveManagerId;
-        updates.managerName = manager?.fullName ?? "";
+        updates.managerName = nameOf(manager);
         updates.managerUsername = manager?.username ?? "";
       }
 
@@ -301,9 +330,11 @@ export default function SitesPage({
     const manager = effectiveManagerId
       ? freshUsers.find((u) => u.id === effectiveManagerId)
       : undefined;
-    const auditorName = auditor?.fullName ?? "";
-    const reviewerName = reviewer?.fullName ?? "";
-    const managerName = manager?.fullName ?? "";
+    const nameOf2 = (u: typeof auditor | typeof reviewer | typeof manager) =>
+      u ? u.fullName?.trim() || u.username : "";
+    const auditorName = nameOf2(auditor);
+    const reviewerName = nameOf2(reviewer);
+    const managerName = nameOf2(manager);
     const auditorUsername = auditor?.username ?? "";
     const reviewerUsername = reviewer?.username ?? "";
     const managerUsername = manager?.username ?? "";
@@ -497,42 +528,67 @@ export default function SitesPage({
                               )}
                             </TableCell>
                             <TableCell className="px-3">
-                              {s.auditorName || s.assignedAuditorName ? (
-                                <div className="flex items-center gap-1">
-                                  <User className="h-3 w-3 text-[#6aab7e]" />
-                                  <span className="text-xs text-gray-300">
-                                    {s.auditorName || s.assignedAuditorName}
+                              {(() => {
+                                const name = resolveUserName(
+                                  s.auditorId || s.assignedAuditorId || "",
+                                  s.auditorName || s.assignedAuditorName || "",
+                                  s.auditorUsername,
+                                );
+                                return name ? (
+                                  <div className="flex items-center gap-1">
+                                    <User className="h-3 w-3 text-[#6aab7e]" />
+                                    <span className="text-xs text-gray-300">
+                                      {name}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-600">
+                                    Unassigned
                                   </span>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-gray-600">
-                                  Unassigned
-                                </span>
-                              )}
+                                );
+                              })()}
                             </TableCell>
                             <TableCell className="px-3">
-                              {s.reviewerName ? (
-                                <div className="flex items-center gap-1">
-                                  <User className="h-3 w-3 text-purple-400" />
-                                  <span className="text-xs text-gray-300">
-                                    {s.reviewerName}
+                              {(() => {
+                                const name = resolveUserName(
+                                  s.reviewerId || "",
+                                  s.reviewerName || "",
+                                  s.reviewerUsername,
+                                );
+                                return name ? (
+                                  <div className="flex items-center gap-1">
+                                    <User className="h-3 w-3 text-purple-400" />
+                                    <span className="text-xs text-gray-300">
+                                      {name}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-600">
+                                    —
                                   </span>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-gray-600">—</span>
-                              )}
+                                );
+                              })()}
                             </TableCell>
                             <TableCell className="px-3">
-                              {s.managerName ? (
-                                <div className="flex items-center gap-1">
-                                  <User className="h-3 w-3 text-blue-400" />
-                                  <span className="text-xs text-gray-300">
-                                    {s.managerName}
+                              {(() => {
+                                const name = resolveUserName(
+                                  s.managerId || "",
+                                  s.managerName || "",
+                                  s.managerUsername,
+                                );
+                                return name ? (
+                                  <div className="flex items-center gap-1">
+                                    <User className="h-3 w-3 text-blue-400" />
+                                    <span className="text-xs text-gray-300">
+                                      {name}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-600">
+                                    —
                                   </span>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-gray-600">—</span>
-                              )}
+                                );
+                              })()}
                             </TableCell>
                             <TableCell className="px-3">
                               {tmpl ? (

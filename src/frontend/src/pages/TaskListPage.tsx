@@ -23,6 +23,7 @@ import { backendSync } from "../lib/backendSync";
 import { auditStore, clientStore, siteStore } from "../lib/dataStore";
 import type { Audit, Site } from "../lib/dataStore";
 import type { Session } from "../lib/session";
+import { getUsers } from "../lib/userStore";
 
 interface Props {
   session: Session;
@@ -440,12 +441,58 @@ export default function TaskListPage({ session, onNavigate }: Props) {
                               : "—"}
                           </td>
                           <td className="px-4 py-3 text-gray-300 text-sm">
-                            {site.auditorName ||
-                              site.assignedAuditorName ||
-                              "—"}
+                            {(() => {
+                              const allUsers = getUsers().filter(
+                                (u) => u.isEnabled,
+                              );
+                              const byId = allUsers.find(
+                                (u) =>
+                                  u.id ===
+                                  (site.auditorId ||
+                                    site.assignedAuditorId ||
+                                    ""),
+                              );
+                              const byUsername =
+                                !byId && site.auditorUsername
+                                  ? allUsers.find(
+                                      (u) =>
+                                        u.username.toLowerCase() ===
+                                        (
+                                          site.auditorUsername || ""
+                                        ).toLowerCase(),
+                                    )
+                                  : null;
+                              const resolved = byId || byUsername;
+                              return resolved
+                                ? resolved.fullName?.trim() || resolved.username
+                                : site.auditorName ||
+                                    site.assignedAuditorName ||
+                                    "—";
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-gray-300 text-sm">
-                            {site.reviewerName || "—"}
+                            {(() => {
+                              const allUsers = getUsers().filter(
+                                (u) => u.isEnabled,
+                              );
+                              const byId = site.reviewerId
+                                ? allUsers.find((u) => u.id === site.reviewerId)
+                                : null;
+                              const byUsername =
+                                !byId && site.reviewerUsername
+                                  ? allUsers.find(
+                                      (u) =>
+                                        u.username.toLowerCase() ===
+                                        (
+                                          site.reviewerUsername || ""
+                                        ).toLowerCase(),
+                                    )
+                                  : null;
+                              const resolved = byId || byUsername;
+                              return resolved
+                                ? resolved.fullName?.trim() || resolved.username
+                                : site.reviewerName || "—";
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-gray-300 text-sm whitespace-nowrap">
                             {startedOn}

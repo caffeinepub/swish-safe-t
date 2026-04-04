@@ -296,7 +296,9 @@ export default function AdminPage({ session, onNavigate }: Props) {
         />
         <header className="bg-[#0d1912] border-b border-[#1e2e26] px-4 md:px-6 py-3 flex items-center gap-2 shrink-0">
           <Users className="h-5 w-5 text-[#8aad3a]" />
-          <h1 className="text-lg font-bold text-white">Admin Panel</h1>
+          <h1 className="text-lg font-bold text-white">
+            {session.role === "admin" ? "Admin Panel" : "Users Panel"}
+          </h1>
           {syncing && (
             <span className="ml-2 text-xs text-gray-500 flex items-center gap-1">
               <RefreshCw className="h-3 w-3 animate-spin" />

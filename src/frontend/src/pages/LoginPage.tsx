@@ -23,13 +23,13 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#1a2420] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#1a2420] flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-4">
         {/* Brand header */}
         <div className="text-center mb-6">
           <div className="flex justify-center mb-4">
             <img
-              src="/assets/uploads/image-019d3d8b-584b-714e-ae50-a38cb11210fd-1.png"
+              src="/assets/safe_t_logo-019d53e7-5833-75a1-aa48-381ef7c1a818.png"
               alt="SWiSH SAFE-T"
               className="h-24 w-auto object-contain bg-white rounded-lg px-3 py-2"
             />
@@ -88,6 +88,16 @@ export default function LoginPage() {
             </form>
           </CardContent>
         </Card>
+
+        {/* Powered by */}
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <span className="text-gray-500 text-xs">Powered by:</span>
+          <img
+            src="/assets/logo-019d53e7-5996-719b-a834-d950fb342656.png"
+            alt="A Plus Automations"
+            className="h-7 w-auto object-contain bg-white rounded px-1.5 py-0.5"
+          />
+        </div>
       </div>
     </div>
   );
